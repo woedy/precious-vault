@@ -3,11 +3,13 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface MetalCardProps {
+  id?: string;
   name: string;
   symbol: string;
   price: number;
   change: number;
   unit: string;
+  color?: string;
   icon: string;
   onBuy?: () => void;
   onSell?: () => void;
@@ -15,12 +17,12 @@ interface MetalCardProps {
   variant?: 'default' | 'compact';
 }
 
-export function MetalCard({ 
-  name, 
-  symbol, 
-  price, 
-  change, 
-  unit, 
+export function MetalCard({
+  name,
+  symbol,
+  price,
+  change,
+  unit,
   icon,
   onBuy,
   onSell,
@@ -44,8 +46,8 @@ export function MetalCard({
         </div>
         <div className={cn(
           "flex items-center gap-1 text-sm font-medium px-2 py-1 rounded-full",
-          isPositive 
-            ? "bg-success/10 text-success" 
+          isPositive
+            ? "bg-success/10 text-success"
             : "bg-destructive/10 text-destructive"
         )}>
           {isPositive ? (
@@ -66,16 +68,16 @@ export function MetalCard({
 
       {showActions && (
         <div className="flex gap-2">
-          <Button 
-            variant="gold" 
+          <Button
+            variant="gold"
             className="flex-1"
             onClick={onBuy}
           >
             Buy
           </Button>
           {onSell && (
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="flex-1"
               onClick={onSell}
             >

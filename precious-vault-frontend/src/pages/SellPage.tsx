@@ -1,24 +1,26 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
-import { metals, portfolio } from '@/data/mockData';
+import { useTrading } from '@/hooks/useTrading';
+import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
 
 export default function SellPage() {
-  const [selectedMetal, setSelectedMetal] = useState<string | null>(null);
+  const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select');
   const navigate = useNavigate();
 
-  const holdings = portfolio.holdings.map((h) => ({
-    ...h,
-    metal: metals.find((m) => m.id === h.metalId)!,
-  }));
+  const { data: dashboard, isLoading } = useDashboardData();
+  const { sell } = useTrading();
 
-  const selected = holdings.find((h) => h.metalId === selectedMetal);
+  // Use portfolio_items so we can sell specific items (with IDs)
+  // We filter to only show items that can be sold (e.g. vaulted)
+  const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
+  const selected = holdings.find((h) => h.id === selectedHoldingId);
 
   const handleSell = () => {
     if (selected && amount) {
@@ -26,8 +28,17 @@ export default function SellPage() {
     }
   };
 
-  const handleConfirm = () => {
-    setStep('success');
+  const handleConfirm = async () => {
+    if (!selected) return;
+    try {
+      await sell.mutateAsync({
+        portfolio_item_id: selected.id,
+        amount_oz: parseFloat(amount)
+      });
+      setStep('success');
+    } catch (error) {
+      console.error("Sale failed", error);
+    }
   };
 
   const handleBack = () => {
@@ -35,10 +46,14 @@ export default function SellPage() {
       setStep('select');
     } else if (step === 'success') {
       setStep('select');
-      setSelectedMetal(null);
+      setSelectedHoldingId(null);
       setAmount('');
     }
   };
+
+  if (isLoading) {
+    return <div className="flex h-[calc(100vh-4rem)] items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
+  }
 
   return (
     <Layout>
@@ -53,15 +68,15 @@ export default function SellPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               {holdings.map((holding) => (
                 <div
-                  key={holding.metalId}
-                  onClick={() => setSelectedMetal(holding.metalId)}
-                  className={`card-premium cursor-pointer hover-lift ${selectedMetal === holding.metalId
-                      ? 'ring-2 ring-primary'
-                      : ''
+                  key={holding.id}
+                  onClick={() => setSelectedHoldingId(holding.id)}
+                  className={`card-premium cursor-pointer hover-lift ${selectedHoldingId === holding.id
+                    ? 'ring-2 ring-primary'
+                    : ''
                     }`}
                 >
                   <div className="flex items-center gap-3 mb-4">
-                    <span className="text-3xl">{holding.metal.icon}</span>
+                    <span className="text-3xl">{holding.metal.symbol === 'Au' ? '🥇' : '🥈'}</span>
                     <div>
                       <h3 className="font-semibold text-foreground">{holding.metal.name}</h3>
                       <span className="text-sm text-muted-foreground">{holding.metal.symbol}</span>
@@ -71,26 +86,25 @@ export default function SellPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Holdings</span>
-                      <span className="font-medium text-foreground">{holding.amount} oz</span>
+                      <span className="font-medium text-foreground">{holding.weight_oz} oz</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Current Value</span>
-                      <span className="font-medium text-foreground">
-                        ${holding.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Market Price</span>
-                      <span className="font-medium text-primary">
-                        ${holding.metal.price.toFixed(2)}/oz
-                      </span>
-                    </div>
+                    <span className="text-muted-foreground">Current Value</span>
+                    <span className="font-medium text-foreground">
+                      ${(holding.weight_oz * holding.metal.current_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Market Price</span>
+                    <span className="font-medium text-primary">
+                      ${holding.metal.current_price.toFixed(2)}/oz
+                    </span>
                   </div>
                 </div>
               ))}
+              {holdings.length === 0 && <p className="text-muted-foreground">You have no holdings to sell.</p>}
             </div>
 
-            {selectedMetal && selected && (
+            {selectedHoldingId && selected && (
               <div className="max-w-md mx-auto card-premium">
                 <h2 className="text-xl font-semibold text-foreground mb-4">
                   Sell {selected.metal.name}
@@ -101,7 +115,7 @@ export default function SellPage() {
                     <div className="flex justify-between mb-2">
                       <Label htmlFor="amount">Amount (oz)</Label>
                       <span className="text-sm text-muted-foreground">
-                        Available: {selected.amount} oz
+                        Available: {selected.weight_oz} oz
                       </span>
                     </div>
                     <Input
@@ -110,14 +124,14 @@ export default function SellPage() {
                       placeholder="Enter amount"
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
-                      max={selected.amount}
+                      max={selected.weight_oz}
                       className="h-11"
                     />
                     <Button
                       variant="ghost"
                       size="sm"
                       className="mt-2 text-primary"
-                      onClick={() => setAmount(selected.amount.toString())}
+                      onClick={() => setAmount(selected.weight_oz.toString())}
                     >
                       Sell All
                     </Button>
@@ -127,7 +141,7 @@ export default function SellPage() {
                     <div className="bg-muted p-4 rounded-lg space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Price per oz</span>
-                        <span className="text-foreground">${selected.metal.price.toFixed(2)}</span>
+                        <span className="text-foreground">${selected.metal.current_price.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Quantity</span>
@@ -136,7 +150,7 @@ export default function SellPage() {
                       <div className="flex justify-between font-semibold pt-2 border-t border-border">
                         <span className="text-foreground">You'll Receive</span>
                         <span className="text-success">
-                          ${(parseFloat(amount) * selected.metal.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          ${(parseFloat(amount) * selected.metal.current_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                     </div>
@@ -147,7 +161,7 @@ export default function SellPage() {
                     size="lg"
                     className="w-full"
                     onClick={handleSell}
-                    disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > selected.amount}
+                    disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > selected.weight_oz}
                   >
                     Continue to Sell
                   </Button>
@@ -172,7 +186,7 @@ export default function SellPage() {
 
               <div className="space-y-4">
                 <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                  <span className="text-3xl">{selected.metal.icon}</span>
+                  <span className="text-3xl">{selected.metal.symbol === 'Au' ? '🥇' : '🥈'}</span>
                   <div>
                     <p className="font-semibold text-foreground">{selected.metal.name}</p>
                     <p className="text-sm text-muted-foreground">{amount} oz</p>
@@ -183,19 +197,19 @@ export default function SellPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Sale Value</span>
                     <span className="text-foreground">
-                      ${(parseFloat(amount) * selected.metal.price).toFixed(2)}
+                      ${(parseFloat(amount) * selected.metal.current_price).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Trading Fee (0.5%)</span>
                     <span className="text-foreground">
-                      -${(parseFloat(amount) * selected.metal.price * 0.005).toFixed(2)}
+                      -${(parseFloat(amount) * selected.metal.current_price * 0.005).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold pt-2 border-t border-border">
                     <span className="text-foreground">You'll Receive</span>
                     <span className="text-success">
-                      ${(parseFloat(amount) * selected.metal.price * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${(parseFloat(amount) * selected.metal.current_price * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
@@ -205,7 +219,9 @@ export default function SellPage() {
                   size="lg"
                   className="w-full"
                   onClick={handleConfirm}
+                  disabled={sell.isPending}
                 >
+                  {sell.isPending ? <Loader2 className="animate-spin mr-2" /> : null}
                   Confirm Sale
                 </Button>
 
@@ -233,7 +249,7 @@ export default function SellPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Added to Balance</span>
                   <span className="font-semibold text-success">
-                    +${(parseFloat(amount) * selected.metal.price * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    +${(parseFloat(amount) * selected.metal.current_price * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>

@@ -1,26 +1,37 @@
 import { useState } from 'react';
-import { useMockApp } from '@/context/MockAppContext';
 import { Layout } from '@/components/layout/Layout';
 import { VaultCard } from '@/components/cards/VaultCard';
-import { vaults } from '@/data/mockData';
+import { useVaults } from '@/hooks/useVaults';
+import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, Shield, Building2, Truck } from 'lucide-react';
+import { CheckCircle2, Shield, Building2, Truck, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function VaultsPage() {
   const [selectedVault, setSelectedVault] = useState<string | null>(null);
   const { toast } = useToast();
-  const { portfolio } = useMockApp();
+  const { data: vaults, isLoading: isVaultsLoading } = useVaults();
+  const { data: dashboard, isLoading: isDashboardLoading } = useDashboardData();
 
-  const vaultedItems = portfolio.filter(item => item.location.startsWith('vault_'));
+  const vaultedItems = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(item => item.vault_location) : [];
 
   const handleSelectVault = (vaultId: string) => {
     setSelectedVault(vaultId);
     toast({
       title: "Vault Selected",
-      description: `${vaults.find(v => v.id === vaultId)?.city} vault has been set as your preferred storage location.`,
+      description: `${Array.isArray(vaults) ? vaults.find(v => v.id === vaultId)?.city : ''} vault has been set as your preferred storage location.`,
     });
   };
+
+  if (isVaultsLoading || isDashboardLoading) {
+    return (
+      <Layout>
+        <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -59,12 +70,12 @@ export default function VaultsPage() {
                   <tbody>
                     {vaultedItems.map(item => (
                       <tr key={item.id} className="border-b last:border-0">
-                        <td className="py-4 font-medium capitalize">{item.metal}</td>
-                        <td className="py-4 capitalize text-muted-foreground">{item.form}</td>
-                        <td className="py-4 text-right">{item.weightOz} oz</td>
+                        <td className="py-4 font-medium capitalize">{item.metal.name}</td>
+                        <td className="py-4 capitalize text-muted-foreground">{item.product.name}</td>
+                        <td className="py-4 text-right">{item.weight_oz} oz</td>
                         <td className="py-4 text-right capitalize text-primary text-xs">
                           <span className="bg-primary/10 px-2 py-1 rounded-full">
-                            {item.location.replace('vault_', '')}
+                            {item.vault_location ? `${item.vault_location.city}, ${item.vault_location.country}` : 'Unknown Location'}
                           </span>
                         </td>
                         <td className="py-4 text-right text-green-500 flex items-center justify-end gap-1">
@@ -158,10 +169,17 @@ export default function VaultsPage() {
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-foreground mb-4">Global Vault Locations</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {vaults.map((vault) => (
+            {Array.isArray(vaults) && vaults.map((vault) => (
               <VaultCard
                 key={vault.id}
-                {...vault}
+                city={vault.city}
+                country={vault.country}
+                flag={vault.flag}
+                allocated={true} // Default for now
+                insured={true}   // Default for now
+                storageFee={vault.storage_fee_percent}
+                status={vault.is_active ? 'active' : 'maintenance'}
+                capacity={45}    // Mock capacity
                 onSelect={() => handleSelectVault(vault.id)}
               />
             ))}

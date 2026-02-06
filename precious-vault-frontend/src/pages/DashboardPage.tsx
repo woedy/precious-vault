@@ -1,8 +1,8 @@
 import { Layout } from '@/components/layout/Layout';
 import { StatCard } from '@/components/cards/StatCard';
 import { MetalCard } from '@/components/cards/MetalCard';
-import { portfolio, metals, transactions, chartData } from '@/data/mockData';
-import { Wallet, TrendingUp, Building2, Coins } from 'lucide-react';
+import { useDashboardData, useTransactions, useMetals } from '@/hooks/useDashboardData';
+import { Wallet, TrendingUp, Building2, Coins, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,13 +14,31 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { chartData } from '@/data/mockData';
 
-import { useMockApp } from '@/context/MockAppContext';
+import { useRealTimeData } from '@/hooks/useRealTimeData';
+import { useAuth } from '@/context/AuthContext';
 
 export default function DashboardPage() {
-  const { transactions: contextTransactions, deliveries: contextDeliveries } = useMockApp();
-  // Combine mock data with new context data
-  const allTransactions = [...contextTransactions, ...transactions].slice(0, 10);
+  const { user, isLoading: isAuthLoading } = useAuth();
+  useRealTimeData(); // Initialize real-time updates
+  const { data: dashboard, isLoading: isDashboardLoading } = useDashboardData();
+  const { data: transactions, isLoading: isTransactionsLoading } = useTransactions();
+  const { data: metals, isLoading: isMetalsLoading } = useMetals();
+
+  if (isDashboardLoading || isTransactionsLoading || isMetalsLoading || isAuthLoading) {
+    return (
+      <Layout>
+        <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      </Layout>
+    );
+  }
+
+  // Calculate holdings values
+  const goldHolding = Array.isArray(dashboard?.holdings) ? dashboard?.holdings.find(h => h.metal.symbol === 'Au') : undefined;
+  const silverHolding = Array.isArray(dashboard?.holdings) ? dashboard?.holdings.find(h => h.metal.symbol === 'Ag') : undefined;
 
   return (
     <Layout>
@@ -35,25 +53,25 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard
             title="Total Portfolio Value"
-            value={portfolio.totalValue}
+            value={dashboard?.total_value || 0}
             icon={Wallet}
             trend={{ value: 5.2, isPositive: true }}
           />
           <StatCard
             title="Gold Holdings"
-            value={portfolio.holdings.find(h => h.metalId === 'gold')?.value || 0}
-            subtitle={`${portfolio.holdings.find(h => h.metalId === 'gold')?.amount || 0} oz`}
+            value={goldHolding?.total_value || 0}
+            subtitle={`${goldHolding?.total_oz || 0} oz`}
             icon={Coins}
           />
           <StatCard
             title="Silver Holdings"
-            value={portfolio.holdings.find(h => h.metalId === 'silver')?.value || 0}
-            subtitle={`${portfolio.holdings.find(h => h.metalId === 'silver')?.amount || 0} oz`}
+            value={silverHolding?.total_value || 0}
+            subtitle={`${silverHolding?.total_oz || 0} oz`}
             icon={TrendingUp}
           />
           <StatCard
             title="Cash Balance"
-            value={portfolio.cashBalance}
+            value={dashboard?.cash_balance || 0}
             icon={Building2}
           />
         </div>
@@ -68,7 +86,7 @@ export default function DashboardPage() {
               </Button>
             </Link>
           </div>
-          {/* We can access context here to show delivery count or latest status */}
+          {/* Active shipments from API would go here */}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -127,20 +145,27 @@ export default function DashboardPage() {
               </Link>
             </div>
             <div className="space-y-3">
-              {allTransactions.map((txn) => (
+              {Array.isArray(transactions) && transactions.slice(0, 10).map((txn) => (
                 <div key={txn.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div>
-                    <p className="font-medium text-foreground capitalize">{txn.type}</p>
-                    <p className="text-sm text-muted-foreground">{txn.asset}</p>
+                    <p className="font-medium text-foreground capitalize">{txn.transaction_type}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {txn.metal?.name || txn.transaction_type}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium text-foreground">
-                      ${txn.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${txn.total_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </p>
-                    <p className="text-xs text-muted-foreground">{txn.date}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(txn.created_at).toLocaleDateString()}
+                    </p>
                   </div>
                 </div>
               ))}
+              {(!transactions || transactions.length === 0) && (
+                <p className="text-sm text-muted-foreground text-center py-4">No recent transactions</p>
+              )}
             </div>
           </div>
         </div>
@@ -149,10 +174,18 @@ export default function DashboardPage() {
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {metals.slice(0, 4).map((metal) => (
+            {Array.isArray(metals) && metals.slice(0, 4).map((metal) => (
               <Link key={metal.id} to="/buy">
+                {/* Map API metal data to MetalCard props */}
                 <MetalCard
-                  {...metal}
+                  id={metal.id}
+                  name={metal.name}
+                  symbol={metal.symbol}
+                  price={metal.current_price}
+                  change={metal.price_change_24h}
+                  unit="oz"
+                  color={metal.symbol === 'Au' ? "from-yellow-400 to-amber-500" : "from-slate-300 to-slate-400"}
+                  icon={metal.symbol === 'Au' ? "🥇" : (metal.symbol === 'Ag' ? "🥈" : "⚪")}
                   showActions={false}
                 />
               </Link>

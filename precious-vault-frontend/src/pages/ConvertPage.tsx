@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
-import { metals, portfolio } from '@/data/mockData';
+import { useTrading } from '@/hooks/useTrading';
+import { useDashboardData } from '@/hooks/useDashboardData';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2, Banknote } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Banknote, Loader2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -14,19 +15,19 @@ import {
 } from "@/components/ui/select";
 
 export default function ConvertPage() {
-  const [selectedMetal, setSelectedMetal] = useState<string>('');
+  const [selectedHoldingId, setSelectedHoldingId] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select');
   const navigate = useNavigate();
 
-  const holdings = portfolio.holdings.map((h) => ({
-    ...h,
-    metal: metals.find((m) => m.id === h.metalId)!,
-  }));
+  const { data: dashboard, isLoading } = useDashboardData();
+  const { convert } = useTrading();
 
-  const selected = holdings.find((h) => h.metalId === selectedMetal);
+  const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
+  const selected = holdings.find((h) => h.id === selectedHoldingId);
   const amountValue = amount ? parseFloat(amount) : 0;
-  const cashValue = selected ? amountValue * selected.metal.price * 0.98 : 0; // 2% conversion fee
+  // Use current_price from metal
+  const cashValue = selected ? amountValue * selected.metal.current_price * 0.98 : 0; // 2% conversion fee
 
   const handleConvert = () => {
     if (selected && amount) {
@@ -34,8 +35,17 @@ export default function ConvertPage() {
     }
   };
 
-  const handleConfirm = () => {
-    setStep('success');
+  const handleConfirm = async () => {
+    if (!selected) return;
+    try {
+      await convert.mutateAsync({
+        portfolio_item_id: selected.id,
+        amount_oz: parseFloat(amount)
+      });
+      setStep('success');
+    } catch (error) {
+      console.error("Conversion failed", error);
+    }
   };
 
   const handleBack = () => {
@@ -43,7 +53,7 @@ export default function ConvertPage() {
       setStep('select');
     } else if (step === 'success') {
       setStep('select');
-      setSelectedMetal('');
+      setSelectedHoldingId('');
       setAmount('');
     }
   };
@@ -53,9 +63,19 @@ export default function ConvertPage() {
       { value: '1', label: '1 oz' },
       { value: '5', label: '5 oz' },
       { value: '10', label: '10 oz' },
-      { value: selected.amount.toString(), label: `All (${selected.amount} oz)` },
-    ].filter(opt => parseFloat(opt.value) <= selected.amount)
+      { value: selected.weight_oz.toString(), label: `All (${selected.weight_oz} oz)` },
+    ].filter(opt => parseFloat(opt.value) <= selected.weight_oz)
     : [];
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+          <Loader2 className="animate-spin text-primary" />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -83,26 +103,27 @@ export default function ConvertPage() {
 
                 <div className="space-y-4">
                   <div>
-                    <Label>Select Metal</Label>
-                    <Select value={selectedMetal} onValueChange={(v) => { setSelectedMetal(v); setAmount(''); }}>
+                    <Label>Select Metal Holding</Label>
+                    <Select value={selectedHoldingId} onValueChange={(v) => { setSelectedHoldingId(v); setAmount(''); }}>
                       <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Choose a metal" />
+                        <SelectValue placeholder="Choose a holding" />
                       </SelectTrigger>
                       <SelectContent>
                         {holdings.map((h) => (
-                          <SelectItem key={h.metalId} value={h.metalId}>
+                          <SelectItem key={h.id} value={h.id}>
                             <span className="flex items-center gap-2">
-                              <span>{h.metal.icon}</span>
+                              <span>{h.metal.symbol === 'Au' ? '🥇' : '🥈'}</span>
                               <span>{h.metal.name}</span>
-                              <span className="text-muted-foreground">({h.amount} oz)</span>
+                              <span className="text-muted-foreground">({h.weight_oz} oz)</span>
                             </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {holdings.length === 0 && <p className="text-sm text-muted-foreground mt-2">No vaulted holdings available to convert.</p>}
                   </div>
 
-                  {selectedMetal && (
+                  {selectedHoldingId && selected && (
                     <div>
                       <Label>Amount to Convert</Label>
                       <Select value={amount} onValueChange={setAmount}>
@@ -125,13 +146,13 @@ export default function ConvertPage() {
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Metal Value</span>
                         <span className="text-foreground">
-                          ${(amountValue * selected.metal.price).toFixed(2)}
+                          ${(amountValue * selected.metal.current_price).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Conversion Fee (2%)</span>
                         <span className="text-foreground">
-                          -${(amountValue * selected.metal.price * 0.02).toFixed(2)}
+                          -${(amountValue * selected.metal.current_price * 0.02).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between font-semibold pt-2 border-t border-border">
@@ -148,7 +169,7 @@ export default function ConvertPage() {
                     size="lg"
                     className="w-full"
                     onClick={handleConvert}
-                    disabled={!selectedMetal || !amount}
+                    disabled={!selectedHoldingId || !amount}
                   >
                     Convert to Cash
                   </Button>
@@ -178,7 +199,7 @@ export default function ConvertPage() {
 
               <div className="space-y-4">
                 <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                  <span className="text-3xl">{selected.metal.icon}</span>
+                  <span className="text-3xl">{selected.metal.symbol === 'Au' ? '🥇' : '🥈'}</span>
                   <div className="flex-1">
                     <p className="font-semibold text-foreground">{selected.metal.name}</p>
                     <p className="text-sm text-muted-foreground">{amount} oz → Cash</p>
@@ -190,13 +211,13 @@ export default function ConvertPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Metal Value</span>
                     <span className="text-foreground">
-                      ${(amountValue * selected.metal.price).toFixed(2)}
+                      ${(amountValue * selected.metal.current_price).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Conversion Fee</span>
                     <span className="text-foreground">
-                      -${(amountValue * selected.metal.price * 0.02).toFixed(2)}
+                      -${(amountValue * selected.metal.current_price * 0.02).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold pt-2 border-t border-border">
@@ -212,7 +233,9 @@ export default function ConvertPage() {
                   size="lg"
                   className="w-full"
                   onClick={handleConfirm}
+                  disabled={convert.isPending}
                 >
+                  {convert.isPending ? <Loader2 className="animate-spin mr-2" /> : null}
                   Confirm Conversion
                 </Button>
 

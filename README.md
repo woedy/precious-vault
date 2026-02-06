@@ -1,0 +1,155 @@
+# Precious Vault - Monorepo
+
+Full-stack precious metals trading platform with Django backend and React frontend.
+
+## Quick Start
+
+### Option 1: Use Startup Script (Recommended)
+
+**Windows:**
+```bash
+start.bat
+```
+
+**Linux/Mac:**
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+This will automatically:
+- Start all services
+- Run migrations
+- Seed the database
+- Display access URLs
+
+### Option 2: Manual Docker Compose
+
+```bash
+# Start all services (frontend, backend, database, redis, celery, websockets)
+docker-compose up --build
+
+# Run in detached mode
+docker-compose up -d --build
+```
+
+**Access:**
+- Frontend: http://localhost
+- Backend API: http://localhost:8000/api
+- WebSocket: ws://localhost:9000/ws
+- Admin Panel: http://localhost:8000/admin
+
+### First Time Setup
+
+1. **Run migrations:**
+   ```bash
+   docker-compose exec backend python manage.py migrate
+   ```
+
+2. **Create superuser:**
+   ```bash
+   docker-compose exec backend python manage.py createsuperuser
+   ```
+
+3. **Seed database:**
+   ```bash
+   docker-compose exec backend python manage.py seed_data
+   ```
+
+### Stop Services
+
+```bash
+docker-compose down
+
+# Remove volumes (clean slate)
+docker-compose down -v
+```
+
+## Project Structure
+
+```
+precious-vault/
+├── docker-compose.yml          # Main orchestration file
+├── precious-vault-frontend/    # React + TypeScript frontend
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   └── src/
+└── precious-vault-backend/     # Django REST API backend
+    ├── Dockerfile
+    ├── config/                 # Django settings
+    ├── users/                  # User management
+    ├── trading/                # Metals & trading
+    ├── vaults/                 # Vault locations
+    └── delivery/               # Physical delivery
+```
+
+## Services
+
+- **postgres** - PostgreSQL database (port 5432)
+- **redis** - Redis cache & message broker (port 6379)
+- **backend** - Django REST API (port 8000)
+- **celery** - Background task worker
+- **celery-beat** - Task scheduler
+- **channels** - WebSocket server (port 9000)
+- **frontend** - React app with Nginx (port 80)
+
+## Development
+
+### Backend Only
+```bash
+cd precious-vault-backend
+docker-compose up
+```
+
+### Frontend Only
+```bash
+cd precious-vault-frontend
+npm install
+npm run dev
+```
+
+### View Logs
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f backend
+docker-compose logs -f frontend
+```
+
+### Rebuild Services
+```bash
+# Rebuild all
+docker-compose build
+
+# Rebuild specific service
+docker-compose build backend
+docker-compose build frontend
+```
+
+## API Documentation
+
+See `precious-vault-backend/API_REFERENCE.md` for complete API documentation.
+
+## Tech Stack
+
+### Frontend
+- React 18 + TypeScript
+- Vite
+- Tailwind CSS + shadcn/ui
+- React Router
+- TanStack Query
+
+### Backend
+- Django 5.0
+- Django REST Framework
+- PostgreSQL
+- Redis
+- Celery
+- Channels (WebSocket)
+- JWT Authentication
+
+## License
+
+Proprietary - Precious Vault Platform

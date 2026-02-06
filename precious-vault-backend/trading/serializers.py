@@ -1,0 +1,96 @@
+"""
+Trading serializers
+"""
+
+from rest_framework import serializers
+from .models import Metal, Product, PortfolioItem, Transaction
+
+
+class MetalSerializer(serializers.ModelSerializer):
+    """Metal serializer"""
+    
+    class Meta:
+        model = Metal
+        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'last_updated']
+        read_only_fields = ['id', 'last_updated']
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    """Product serializer"""
+    
+    metal = MetalSerializer(read_only=True)
+    metal_id = serializers.UUIDField(write_only=True)
+    
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'metal', 'metal_id', 'name', 'manufacturer', 'purity',
+            'weight_oz', 'premium_per_oz', 'product_type', 'is_active', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+class PortfolioItemSerializer(serializers.ModelSerializer):
+    """Portfolio item serializer"""
+    
+    metal = MetalSerializer(read_only=True)
+    product = ProductSerializer(read_only=True)
+    vault_location_name = serializers.CharField(source='vault_location.name', read_only=True)
+    current_value = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PortfolioItem
+        fields = [
+            'id', 'metal', 'product', 'weight_oz', 'quantity',
+            'vault_location', 'vault_location_name', 'serial_numbers',
+            'purchase_date', 'purchase_price', 'status', 'current_value', 'created_at'
+        ]
+        read_only_fields = ['id', 'purchase_date', 'created_at']
+    
+    def get_current_value(self, obj):
+        """Calculate current value based on current metal price"""
+        return float(obj.weight_oz * obj.metal.current_price)
+
+
+class TransactionSerializer(serializers.ModelSerializer):
+    """Transaction serializer"""
+    
+    metal = MetalSerializer(read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    
+    class Meta:
+        model = Transaction
+        fields = [
+            'id', 'user', 'user_email', 'transaction_type', 'metal',
+            'amount_oz', 'price_per_oz', 'total_value', 'fees',
+            'status', 'created_at'
+        ]
+        read_only_fields = ['id', 'user', 'created_at']
+
+
+class BuyMetalSerializer(serializers.Serializer):
+    """Buy metal request serializer"""
+    
+    product_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1)
+    vault_id = serializers.UUIDField(required=False, allow_null=True)
+    delivery_method = serializers.ChoiceField(choices=['vault', 'delivery'])
+    
+    def validate(self, attrs):
+        if attrs['delivery_method'] == 'vault' and not attrs.get('vault_id'):
+            raise serializers.ValidationError({"vault_id": "Vault ID is required for vault storage."})
+        return attrs
+
+
+class SellMetalSerializer(serializers.Serializer):
+    """Sell metal request serializer"""
+    
+    portfolio_item_id = serializers.UUIDField()
+    amount_oz = serializers.DecimalField(max_digits=10, decimal_places=4, min_value=0.0001)
+
+
+class ConvertMetalSerializer(serializers.Serializer):
+    """Convert metal to cash request serializer"""
+    
+    portfolio_item_id = serializers.UUIDField()
+    amount_oz = serializers.DecimalField(max_digits=10, decimal_places=4, min_value=0.0001)

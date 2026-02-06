@@ -1,50 +1,93 @@
 import { useState, useEffect } from 'react';
-import { products, metals, vaults } from '@/data/mockData';
-import { useMockApp } from '@/context/MockAppContext';
+import { useTrading } from '@/hooks/useTrading';
+import { useMetals } from '@/hooks/useDashboardData';
+import { useQuery } from '@tanstack/react-query';
+import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle2, Truck, Building2, ShieldCheck, ArrowRight, ArrowLeft, Info } from 'lucide-react';
+import { CheckCircle2, Truck, Building2, ShieldCheck, Info, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 
 type BuyingStep = 'product' | 'config' | 'delivery' | 'review' | 'success';
 
 interface OrderState {
     productId: string;
     quantity: number;
-    deliveryMethod: 'vault' | 'shipping';
+    deliveryMethod: 'vault' | 'delivery'; // Updated to match backend enum if needed, kept 'delivery' for shipping
     vaultLocationId?: string;
+}
+
+interface Product {
+    id: string;
+    name: string;
+    metal: { id: string; symbol: string; name: string; current_price: number };
+    weight_oz: number;
+    premium_per_oz: number;
+    image_url: string | null;
+    manufacturer: string;
+    purity: string;
+}
+
+interface Vault {
+    id: string;
+    location_name: string;
+    city: string;
+    country: string;
+    storage_fee_percent: number;
 }
 
 export default function BuyWizard() {
     const navigate = useNavigate();
-    const { user, addTransaction } = useMockApp();
+    const { user } = useAuth();
+    const { buy } = useTrading();
+    const { data: metals } = useMetals();
+
+    // Fetch Products
+    const { data: products, isLoading: isLoadingProducts } = useQuery({
+        queryKey: ['products'],
+        queryFn: async () => {
+            const res = await api.get<Product[]>('/trading/products/');
+            return res.data;
+        }
+    });
+
+    // Fetch Vaults
+    const { data: vaults } = useQuery({
+        queryKey: ['vaults'],
+        queryFn: async () => {
+            const res = await api.get<Vault[]>('/vaults/');
+            return res.data;
+        }
+    });
+
     const [step, setStep] = useState<BuyingStep>('product');
     const [order, setOrder] = useState<OrderState>({
         productId: '',
         quantity: 1,
         deliveryMethod: 'vault',
-        vaultLocationId: 'zurich'
+        vaultLocationId: ''
     });
 
     // Calculate live pricing
-    const selectedProduct = products.find(p => p.id === order.productId);
-    const spotPrice = selectedProduct
-        ? metals.find(m => m.id === selectedProduct.metalId)?.price || 0
-        : 0;
+    const selectedProduct = Array.isArray(products) ? products.find(p => p.id === order.productId) : undefined;
+    const spotPrice = selectedProduct?.metal.current_price || 0;
 
     const costs = {
-        spotTotal: spotPrice * (selectedProduct?.weight || 0) * order.quantity,
-        premiumTotal: (selectedProduct?.premium || 0) * order.quantity,
-        shipping: order.deliveryMethod === 'shipping' ? 45.00 : 0,
-        vaultFee: order.deliveryMethod === 'vault' ? 0 : 0, // Mock: Vault fee is annual, not upfront
-        tax: order.deliveryMethod === 'shipping' ? 0.0 : 0 // Mock: No tax in vaults
+        spotTotal: spotPrice * (selectedProduct?.weight_oz || 0) * order.quantity,
+        premiumTotal: (selectedProduct?.premium_per_oz || 0) * (selectedProduct?.weight_oz || 0) * order.quantity,
+        shipping: order.deliveryMethod === 'delivery' ? 45.00 : 0,
+        vaultFee: 0,
+        tax: order.deliveryMethod === 'delivery' ? 0 : 0
     };
 
-    costs.tax = order.deliveryMethod === 'shipping' ? (costs.spotTotal + costs.premiumTotal) * 0.08 : 0; // 8% sales tax mock
+    if (order.deliveryMethod === 'delivery') {
+        costs.tax = (costs.spotTotal + costs.premiumTotal) * 0.08;
+    }
+
     const grandTotal = costs.spotTotal + costs.premiumTotal + costs.shipping + costs.tax;
 
     const handleProductSelect = (id: string) => {
@@ -61,18 +104,22 @@ export default function BuyWizard() {
     };
 
     const handleConfirm = async () => {
-        // Add transaction to context
-        addTransaction({
-            type: 'buy',
-            asset: selectedProduct?.name,
-            amount: `${order.quantity * (selectedProduct?.weight || 1)} oz`,
-            value: grandTotal,
-            method: order.deliveryMethod
-        });
-
-        // Determine target location for "View Vaults" link later
-        setStep('success');
+        try {
+            await buy.mutateAsync({
+                product_id: order.productId,
+                quantity: order.quantity,
+                delivery_method: order.deliveryMethod,
+                vault_id: order.deliveryMethod === 'vault' ? order.vaultLocationId : undefined
+            });
+            setStep('success');
+        } catch (error) {
+            console.error("Purchase failed", error);
+        }
     };
+
+    if (isLoadingProducts) {
+        return <div className="flex justify-center p-12"><Loader2 className="animate-spin" /></div>;
+    }
 
     return (
         <div className="max-w-4xl mx-auto">
@@ -104,15 +151,14 @@ export default function BuyWizard() {
                         <div>
                             <h2 className="text-2xl font-bold mb-6">Select Investment Product</h2>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {products.map(product => (
+                                {Array.isArray(products) && products.map(product => (
                                     <div
                                         key={product.id}
                                         onClick={() => handleProductSelect(product.id)}
                                         className="border rounded-xl p-4 cursor-pointer hover:border-primary hover:bg-muted/50 transition-all group"
                                     >
                                         <div className="aspect-square bg-white rounded-lg mb-4 flex items-center justify-center p-4 shadow-sm group-hover:shadow-md">
-                                            {/* Placeholder for Product Image */}
-                                            <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${product.metalId === 'gold' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
+                                            <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${product.metal.symbol === 'Au' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
                                         </div>
                                         <div className="flex justify-between items-start mb-2">
                                             <div>
@@ -126,7 +172,7 @@ export default function BuyWizard() {
                                         <div className="flex justify-between items-end mt-4">
                                             <div>
                                                 <p className="text-xs text-muted-foreground">Premium/oz</p>
-                                                <p className="font-medium">${product.premium.toFixed(2)}</p>
+                                                <p className="font-medium">${Number(product.premium_per_oz).toFixed(2)}</p>
                                             </div>
                                             <Button variant="ghost" size="sm" className="group-hover:bg-primary group-hover:text-primary-foreground">Select</Button>
                                         </div>
@@ -142,10 +188,10 @@ export default function BuyWizard() {
                             <h2 className="text-2xl font-bold mb-6">Configure Order</h2>
 
                             <div className="flex gap-6 mb-8 items-center bg-muted/30 p-4 rounded-xl">
-                                <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${selectedProduct.metalId === 'gold' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
+                                <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${selectedProduct.metal.symbol === 'Au' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
                                 <div>
                                     <h3 className="font-bold text-xl">{selectedProduct.name}</h3>
-                                    <p className="text-muted-foreground">{selectedProduct.manufacturer} • {selectedProduct.weight}oz</p>
+                                    <p className="text-muted-foreground">{selectedProduct.manufacturer} • {selectedProduct.weight_oz}oz</p>
                                 </div>
                             </div>
 
@@ -177,7 +223,7 @@ export default function BuyWizard() {
                                 <div className="bg-primary/5 p-4 rounded-lg flex justify-between items-center">
                                     <span>Estimated Total</span>
                                     <span className="text-2xl font-bold text-primary">
-                                        ${(costs.spotTotal + costs.premiumTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        ${(grandTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                     </span>
                                 </div>
                             </div>
@@ -211,10 +257,10 @@ export default function BuyWizard() {
                                 </div>
 
                                 <div
-                                    onClick={() => setOrder({ ...order, deliveryMethod: 'shipping' })}
-                                    className={`border-2 rounded-xl p-6 cursor-pointer transition-all hover:bg-muted/50 ${order.deliveryMethod === 'shipping' ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
+                                    onClick={() => setOrder({ ...order, deliveryMethod: 'delivery' })}
+                                    className={`border-2 rounded-xl p-6 cursor-pointer transition-all hover:bg-muted/50 ${order.deliveryMethod === 'delivery' ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
                                 >
-                                    <Truck className={`w-8 h-8 mb-4 ${order.deliveryMethod === 'shipping' ? 'text-primary' : 'text-muted-foreground'}`} />
+                                    <Truck className={`w-8 h-8 mb-4 ${order.deliveryMethod === 'delivery' ? 'text-primary' : 'text-muted-foreground'}`} />
                                     <h3 className="font-bold text-lg mb-2">Home Delivery</h3>
                                     <p className="text-sm text-muted-foreground mb-4">
                                         Secure, insured shipping to your verified address via armored transport.
@@ -237,10 +283,9 @@ export default function BuyWizard() {
                                             <SelectValue placeholder="Select Location" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {vaults.map(v => (
+                                            {Array.isArray(vaults) && vaults.map(v => (
                                                 <SelectItem key={v.id} value={v.id}>
-                                                    <span className="mr-2">{v.flag}</span>
-                                                    {v.city}, {v.country} ({v.storageFee * 100}%/yr)
+                                                    {v.city}, {v.country} ({v.storage_fee_percent}%)
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -248,14 +293,15 @@ export default function BuyWizard() {
                                 </div>
                             )}
 
-                            {order.deliveryMethod === 'shipping' && (
+                            {order.deliveryMethod === 'delivery' && (
                                 <div className="space-y-4 animate-in fade-in slide-in-from-top-4">
                                     <div className="bg-muted p-4 rounded border">
                                         <p className="text-sm font-medium">Shipping Address</p>
                                         <p className="text-sm text-muted-foreground mt-1">
                                             {user?.firstName} {user?.lastName}<br />
-                                            {user?.address?.street || '123 Verified St'}<br />
-                                            {user?.address?.city || 'Zurich'}, {user?.address?.country || 'Switzerland'}
+                                            {/* user address coming soon via context updates */}
+                                            123 Verified St<br />
+                                            Zurich, Switzerland
                                         </p>
                                         <p className="text-xs text-primary mt-2 cursor-pointer">Change Address (Requires KYC Update)</p>
                                     </div>
@@ -264,7 +310,7 @@ export default function BuyWizard() {
 
                             <div className="flex justify-between mt-8">
                                 <Button variant="ghost" onClick={() => setStep('config')}>Back</Button>
-                                <Button onClick={handleDeliverySubmit}>Review Order</Button>
+                                <Button onClick={handleDeliverySubmit} disabled={order.deliveryMethod === 'vault' && !order.vaultLocationId}>Review Order</Button>
                             </div>
                         </div>
                     )}
@@ -277,7 +323,7 @@ export default function BuyWizard() {
                             <div className="bg-muted/50 rounded-xl p-6 mb-6 space-y-4">
                                 <div className="flex justify-between items-center pb-4 border-b">
                                     <span className="font-semibold">{selectedProduct.name} x{order.quantity}</span>
-                                    <span className="font-mono">{(selectedProduct.weight * order.quantity)}oz</span>
+                                    <span className="font-mono">{(selectedProduct.weight_oz * order.quantity)}oz</span>
                                 </div>
 
                                 <div className="space-y-2 text-sm">
@@ -289,13 +335,13 @@ export default function BuyWizard() {
                                         <span>Dealer Premium</span>
                                         <span>${costs.premiumTotal.toFixed(2)}</span>
                                     </div>
-                                    {order.deliveryMethod === 'shipping' && (
+                                    {order.deliveryMethod === 'delivery' && (
                                         <div className="flex justify-between text-muted-foreground">
                                             <span>Insured Shipping</span>
                                             <span>${costs.shipping.toFixed(2)}</span>
                                         </div>
                                     )}
-                                    {order.deliveryMethod === 'shipping' && (
+                                    {order.deliveryMethod === 'delivery' && (
                                         <div className="flex justify-between text-orange-600/80">
                                             <span>Estimated Sales Tax (8%)</span>
                                             <span>${costs.tax.toFixed(2)}</span>
@@ -312,13 +358,14 @@ export default function BuyWizard() {
                             {order.deliveryMethod === 'vault' && (
                                 <div className="bg-blue-500/10 text-blue-600 p-4 rounded-lg mb-6 text-sm flex gap-3">
                                     <ShieldCheck className="shrink-0" />
-                                    <p>Your assets will be physically allocated in our {vaults.find(v => v.id === order.vaultLocationId)?.city} vault. You will receive the serial numbers within 24 hours.</p>
+                                    <p>Your assets will be physically allocated in our {Array.isArray(vaults) ? vaults.find(v => v.id === order.vaultLocationId)?.city : ''} vault.</p>
                                 </div>
                             )}
 
                             <div className="flex justify-between mt-8">
                                 <Button variant="ghost" onClick={() => setStep('delivery')}>Back</Button>
-                                <Button size="lg" variant="gold" className="w-full md:w-auto" onClick={handleConfirm}>
+                                <Button size="lg" variant="gold" className="w-full md:w-auto" onClick={handleConfirm} disabled={buy.isPending}>
+                                    {buy.isPending ? <Loader2 className="animate-spin mr-2" /> : null}
                                     Confirm Transaction (${grandTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
                                 </Button>
                             </div>
@@ -340,7 +387,7 @@ export default function BuyWizard() {
                             </p>
                             <div className="flex gap-4 justify-center">
                                 <Button variant="outline" onClick={() => navigate('/dashboard')}>Return to Dashboard</Button>
-                                <Button onClick={() => { setStep('product'); setOrder({ ...order, quantity: 1 }); }}>Buy More</Button>
+                                <Button onClick={() => { setStep('product'); setOrder({ ...order, quantity: 1, productId: '' }); }}>Buy More</Button>
                             </div>
                         </div>
                     )}

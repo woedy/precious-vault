@@ -18,7 +18,7 @@ export default function TrackingPage() {
                     <p className="text-muted-foreground">Monitor the status of your physical deliveries.</p>
                 </div>
 
-                {deliveries.length === 0 ? (
+                {!Array.isArray(deliveries) || deliveries.length === 0 ? (
                     <div className="text-center py-16 bg-muted/30 rounded-xl">
                         <Truck className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                         <h3 className="text-lg font-semibold">No Active Shipments</h3>
@@ -27,7 +27,7 @@ export default function TrackingPage() {
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        {deliveries.map(delivery => (
+                        {Array.isArray(deliveries) && deliveries.map(delivery => (
                             <Card key={delivery.id} className="overflow-hidden">
                                 <div className="bg-muted/50 p-4 border-b flex justify-between items-center">
                                     <div>

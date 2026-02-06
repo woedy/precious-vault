@@ -1,19 +1,22 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMockApp } from '@/context/MockAppContext';
+import api from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Shield, CheckCircle2, Lock, Upload, User, ArrowRight } from 'lucide-react';
+import { Shield, CheckCircle2, Lock, Upload, ArrowRight, Loader2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 type Step = 'account' | 'identity' | 'security' | 'complete';
 
 export default function OnboardingPage() {
     const [step, setStep] = useState<Step>('account');
     const [isLoading, setIsLoading] = useState(false);
-    const { updateUser, submitKYC, enable2FA } = useMockApp();
+    const [error, setError] = useState('');
+    const { checkAuth } = useAuth();
     const navigate = useNavigate();
 
     // Form States
@@ -24,7 +27,7 @@ export default function OnboardingPage() {
         street: '',
         city: '',
         zip: '',
-        country: 'Switzerland' // Default to a "neutral" safe haven
+        country: 'Switzerland'
     });
 
     const getProgress = () => {
@@ -39,37 +42,52 @@ export default function OnboardingPage() {
 
     const handleAccountSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        updateUser({
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            phoneNumber: formData.phone
-        });
         setStep('identity');
     };
 
     const handleIdentitySubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-        await submitKYC({
-            address: {
+        setError('');
+        try {
+            // Submit complete profile and address data
+            await api.post('/users/profile/submit_kyc/', {
+                first_name: formData.firstName,
+                last_name: formData.lastName,
+                phone_number: formData.phone,
                 street: formData.street,
                 city: formData.city,
-                zipCode: formData.zip,
+                zip_code: formData.zip,
                 country: formData.country,
-                state: ''
-            }
-        });
-        setIsLoading(false);
-        setStep('security');
+                state: '' // Optional
+            });
+
+            // Refresh auth state to get verified status
+            await checkAuth();
+            setStep('security');
+        } catch (err: any) {
+            console.error('KYC submission error:', err);
+            setError(err.response?.data?.message || 'Verification failed. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleSecuritySubmit = async () => {
         setIsLoading(true);
-        // Simulate delays
-        await new Promise(r => setTimeout(r, 1000));
-        enable2FA();
-        setIsLoading(false);
-        setStep('complete');
+        setError('');
+        try {
+            await api.post('/users/profile/enable_2fa/', { enabled: true });
+
+            // Refresh auth state
+            await checkAuth();
+            setStep('complete');
+        } catch (err: any) {
+            console.error('2FA error:', err);
+            setError('Failed to enable 2FA.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -90,6 +108,12 @@ export default function OnboardingPage() {
                 </CardHeader>
 
                 <CardContent className="pt-6">
+                    {error && (
+                        <Alert variant="destructive" className="mb-4">
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
+
                     {step === 'account' && (
                         <form id="account-form" onSubmit={handleAccountSubmit} className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
@@ -244,13 +268,23 @@ export default function OnboardingPage() {
 
                             {step === 'identity' && (
                                 <Button form="identity-form" type="submit" disabled={isLoading}>
-                                    {isLoading ? 'Verifying...' : 'Verify Identity'}
+                                    {isLoading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Verifying...
+                                        </>
+                                    ) : 'Verify Identity'}
                                 </Button>
                             )}
 
                             {step === 'security' && (
                                 <Button onClick={handleSecuritySubmit} disabled={isLoading}>
-                                    {isLoading ? 'Activating...' : 'Enable 2FA & Finish'}
+                                    {isLoading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Activating...
+                                        </>
+                                    ) : 'Enable 2FA & Finish'}
                                 </Button>
                             )}
                         </>
