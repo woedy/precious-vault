@@ -16,6 +16,7 @@ dist/
 # Environment
 .env
 .env.local
+.env.prod.example
 
 # IDE
 .vscode/
@@ -36,3 +37,4 @@ db.sqlite3
 # Build
 build/
 *.egg-info/
+

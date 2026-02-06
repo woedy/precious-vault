@@ -34,12 +34,19 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
-# Create non-root user
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Create staticfiles directory and set permissions
+RUN mkdir -p /app/staticfiles && \
+    chmod +x /app/entrypoint.sh && \
+    useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
 USER appuser
 
 # Expose port
 EXPOSE 8000
 
-# Default command (can be overridden in docker-compose)
+# Entrypoint script to handle migrations and static files
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Default command
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
