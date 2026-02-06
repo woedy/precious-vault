@@ -3,11 +3,23 @@
 # Exit immediately if a command exits with a non-zero status
 set -e
 
-echo "Running migrations..."
+echo "[$(date)] Starting entrypoint script..."
+
+# Wait for database
+if [ -n "$DB_HOST" ]; then
+    echo "[$(date)] Waiting for database at $DB_HOST:$DB_PORT..."
+    until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
+      echo "[$(date)] Database is unavailable - sleeping"
+      sleep 2
+    done
+    echo "[$(date)] Database is up and running!"
+fi
+
+echo "[$(date)] Running migrations..."
 python manage.py migrate --noinput
 
-echo "Collecting static files..."
+echo "[$(date)] Collecting static files..."
 python manage.py collectstatic --noinput
 
-# Execute the passed command (e.g., gunicorn or celery)
+echo "[$(date)] Starting application with command: $@"
 exec "$@"

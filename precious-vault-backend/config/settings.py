@@ -21,6 +21,13 @@ environ.Env.read_env(BASE_DIR / '.env')
 SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
+# Ensure localhost and 127.0.0.1 are always included for internal checks
+if 'localhost' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('localhost')
+if '127.0.0.1' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('127.0.0.1')
+if 'backend' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('backend')
 
 # Application definition
 INSTALLED_APPS = [
