@@ -79,6 +79,7 @@ services:
     environment:
       - DEBUG=True
       - SECRET_KEY=dev-secret-key-change-in-production
+      - SKIP_MIGRATIONS=true
       - DB_ENGINE=django.db.backends.postgresql
       - DB_NAME=precious_vault
       - DB_USER=postgres
@@ -107,6 +108,7 @@ services:
     environment:
       - DEBUG=True
       - SECRET_KEY=dev-secret-key-change-in-production
+      - SKIP_MIGRATIONS=true
       - DB_ENGINE=django.db.backends.postgresql
       - DB_NAME=precious_vault
       - DB_USER=postgres
@@ -137,7 +139,7 @@ services:
     environment:
       - DEBUG=True
       - SECRET_KEY=dev-secret-key-change-in-production
-      - ALLOWED_HOSTS=localhost,127.0.0.1,channels
+      - SKIP_MIGRATIONS=true
       - DB_ENGINE=django.db.backends.postgresql
       - DB_NAME=precious_vault
       - DB_USER=postgres

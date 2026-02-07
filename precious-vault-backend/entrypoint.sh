@@ -15,11 +15,15 @@ if [ -n "$DB_HOST" ]; then
     echo "[$(date)] Database is up and running!"
 fi
 
-echo "[$(date)] Running migrations..."
-python manage.py migrate --noinput
+if [ "$SKIP_MIGRATIONS" != "true" ]; then
+    echo "[$(date)] Running migrations..."
+    python manage.py migrate --noinput
 
-echo "[$(date)] Collecting static files..."
-python manage.py collectstatic --noinput
+    echo "[$(date)] Collecting static files..."
+    python manage.py collectstatic --noinput
+else
+    echo "[$(date)] Skipping migrations and static file collection (SKIP_MIGRATIONS=true)"
+fi
 
 echo "[$(date)] Starting application with command: $@"
 exec "$@"
