@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { useMockApp } from '@/context/MockAppContext';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { useDashboardData } from '@/hooks/useDashboardData';
+import { useTrading } from '@/hooks/useTrading';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Truck, ShieldCheck, MapPin, Package, CheckCircle2 } from 'lucide-react';
+import { Truck, ShieldCheck, MapPin, Package, CheckCircle2, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 type DeliveryStep = 'select' | 'address' | 'carrier' | 'review' | 'success';
@@ -22,21 +24,40 @@ interface DeliveryConfig {
 
 export default function DeliveryWizard() {
     const navigate = useNavigate();
-    const { portfolio, user, requestDelivery } = useMockApp();
+    const { user } = useAuth();
+    const { data: dashboard, isLoading: isLoadingDashboard } = useDashboardData();
+    const { requestDelivery } = useTrading();
+
     const [step, setStep] = useState<DeliveryStep>('select');
     const [config, setConfig] = useState<DeliveryConfig>({
         selectedItemIds: [],
         address: {
-            street: user?.address?.street || '',
-            city: user?.address?.city || '',
-            zipCode: user?.address?.zipCode || '',
-            country: user?.address?.country || ''
+            street: '',
+            city: '',
+            zipCode: '',
+            country: ''
         },
         carrier: 'fedex'
     });
 
+    // Initialize address when user data is available
+    useEffect(() => {
+        if (user?.address && !config.address.street) {
+            setConfig(prev => ({
+                ...prev,
+                address: {
+                    street: user.address.street,
+                    city: user.address.city,
+                    zipCode: user.address.zipCode,
+                    country: user.address.country
+                }
+            }));
+        }
+    }, [user]);
+
+    const portfolio = dashboard?.portfolio_items || [];
     // Filter only vaulted items
-    const vaultedItems = portfolio.filter(item => item.location.startsWith('vault_'));
+    const vaultedItems = portfolio.filter(item => item.status === 'vaulted');
 
     const handleToggleItem = (id: string) => {
         setConfig(prev => ({
@@ -48,7 +69,7 @@ export default function DeliveryWizard() {
     };
 
     const selectedItems = portfolio.filter(p => config.selectedItemIds.includes(p.id));
-    const totalValue = selectedItems.reduce((acc, item) => acc + (item.weightOz * 2500), 0); // Approx
+    const totalValue = selectedItems.reduce((acc, item) => acc + (Number(item.weight_oz) * (item.metal.current_price || 2500)), 0);
 
     const costs = {
         handling: selectedItems.length * 50,
@@ -57,13 +78,20 @@ export default function DeliveryWizard() {
     };
     const grandTotal = costs.handling + costs.shipping + costs.insurance;
 
-    const handleSubmit = () => {
-        requestDelivery({
-            items: selectedItems.map(i => ({ portfolioItemId: i.id, quantity: i.quantity })),
-            carrier: config.carrier === 'brinks' ? 'brinks' : 'fedex',
-            destination: config.address
-        });
-        setStep('success');
+    const handleSubmit = async () => {
+        try {
+            await requestDelivery.mutateAsync({
+                items: selectedItems.map(i => ({
+                    portfolio_item_id: i.id,
+                    quantity: i.quantity
+                })),
+                carrier: config.carrier,
+                destination: config.address
+            });
+            setStep('success');
+        } catch (error) {
+            // Error managed by mutation toast
+        }
     };
 
     return (
@@ -92,7 +120,12 @@ export default function DeliveryWizard() {
                             <h2 className="text-2xl font-bold mb-4">Select Assets for Withdrawal</h2>
                             <p className="text-muted-foreground mb-6">Choose which vaulted items you wish to take delivery of.</p>
 
-                            {vaultedItems.length === 0 ? (
+                            {isLoadingDashboard ? (
+                                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground animate-pulse">
+                                    <Loader2 className="w-8 h-8 mb-4 animate-spin" />
+                                    <span>Loading vaulted assets...</span>
+                                </div>
+                            ) : vaultedItems.length === 0 ? (
                                 <div className="text-center py-12 text-muted-foreground">
                                     No assets currently in vault.
                                 </div>
@@ -110,12 +143,12 @@ export default function DeliveryWizard() {
                                                     {config.selectedItemIds.includes(item.id) && <CheckCircle2 className="w-3 h-3" />}
                                                 </div>
                                                 <div>
-                                                    <p className="font-semibold capitalize">{item.metal} {item.form}</p>
-                                                    <p className="text-sm text-muted-foreground">{item.weightOz} oz • {item.location}</p>
+                                                    <p className="font-semibold capitalize">{item.metal.name} {item.product.name}</p>
+                                                    <p className="text-sm text-muted-foreground">{item.weight_oz} oz • {item.vault_location?.city || 'Vault'}</p>
                                                 </div>
                                             </div>
                                             <div className="font-mono font-medium">
-                                                ${(item.weightOz * 2500).toLocaleString()}
+                                                ${(Number(item.weight_oz) * (item.metal.current_price || 0)).toLocaleString()}
                                             </div>
                                         </div>
                                     ))}

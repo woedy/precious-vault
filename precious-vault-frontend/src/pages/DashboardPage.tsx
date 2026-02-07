@@ -190,6 +190,15 @@ export default function DashboardPage() {
                 />
               </Link>
             ))}
+            <Link to="/deposit">
+              <div className="card-premium h-full flex flex-col items-center justify-center p-6 border-dashed border-2 hover:border-gold hover:bg-gold/5 transition-all group">
+                <div className="h-12 w-12 rounded-full bg-gold/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Wallet className="h-6 w-6 text-gold" />
+                </div>
+                <h3 className="font-bold text-lg text-foreground">Deposit Cash</h3>
+                <p className="text-sm text-muted-foreground text-center mt-2">Fund your wallet to make new purchases</p>
+              </div>
+            </Link>
           </div>
         </div>
       </div>

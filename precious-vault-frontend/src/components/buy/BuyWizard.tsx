@@ -71,14 +71,23 @@ export default function BuyWizard() {
         deliveryMethod: 'vault',
         vaultLocationId: ''
     });
+    const [error, setError] = useState<string | null>(null);
+
+    // Reset error when step changes
+    useEffect(() => {
+        setError(null);
+    }, [step]);
 
     // Calculate live pricing
     const selectedProduct = Array.isArray(products) ? products.find(p => p.id === order.productId) : undefined;
-    const spotPrice = selectedProduct?.metal.current_price || 0;
+    const spotPrice = Number(selectedProduct?.metal.current_price || 0);
+
+    const weight = Number(selectedProduct?.weight_oz || 0);
+    const premium = Number(selectedProduct?.premium_per_oz || 0);
 
     const costs = {
-        spotTotal: spotPrice * (selectedProduct?.weight_oz || 0) * order.quantity,
-        premiumTotal: (selectedProduct?.premium_per_oz || 0) * (selectedProduct?.weight_oz || 0) * order.quantity,
+        spotTotal: spotPrice * weight * order.quantity,
+        premiumTotal: premium * weight * order.quantity,
         shipping: order.deliveryMethod === 'delivery' ? 45.00 : 0,
         vaultFee: 0,
         tax: order.deliveryMethod === 'delivery' ? 0 : 0
@@ -112,8 +121,9 @@ export default function BuyWizard() {
                 vault_id: order.deliveryMethod === 'vault' ? order.vaultLocationId : undefined
             });
             setStep('success');
-        } catch (error) {
-            console.error("Purchase failed", error);
+        } catch (err: any) {
+            console.error("Purchase failed", err);
+            setError(err.response?.data?.error || "An unexpected error occurred during purchase.");
         }
     };
 
@@ -145,6 +155,12 @@ export default function BuyWizard() {
 
             <Card className="min-h-[500px]">
                 <CardContent className="p-6">
+                    {error && (
+                        <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                            <Info className="h-4 w-4" />
+                            <p className="text-sm font-medium">{error}</p>
+                        </div>
+                    )}
 
                     {/* STEP 1: PRODUCT SELECTION */}
                     {step === 'product' && (
@@ -323,7 +339,7 @@ export default function BuyWizard() {
                             <div className="bg-muted/50 rounded-xl p-6 mb-6 space-y-4">
                                 <div className="flex justify-between items-center pb-4 border-b">
                                     <span className="font-semibold">{selectedProduct.name} x{order.quantity}</span>
-                                    <span className="font-mono">{(selectedProduct.weight_oz * order.quantity)}oz</span>
+                                    <span className="font-mono">{(weight * order.quantity)}oz</span>
                                 </div>
 
                                 <div className="space-y-2 text-sm">
@@ -380,7 +396,7 @@ export default function BuyWizard() {
                             </div>
                             <h2 className="text-3xl font-bold mb-4">Order Placed Successfully</h2>
                             <p className="text-muted-foreground max-w-md mx-auto mb-8">
-                                Your transaction for <strong>{order.quantity}x {selectedProduct?.name}</strong> has been processed.
+                                Your transaction for <strong>{order.quantity}x {selectedProduct?.name || 'Investment Metals'}</strong> has been processed.
                                 {order.deliveryMethod === 'vault'
                                     ? ' The assets are being allocated to your vault storage.'
                                     : ' You will receive a tracking number via email once the shipment is insured and dispatched.'}

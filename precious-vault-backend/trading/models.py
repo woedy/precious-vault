@@ -77,6 +77,13 @@ class PortfolioItem(models.Model):
         blank=True,
         related_name='portfolio_items'
     )
+    shipment = models.ForeignKey(
+        'Shipment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='items'
+    )
     serial_numbers = models.JSONField(default=list, blank=True)
     purchase_date = models.DateField(auto_now_add=True)
     purchase_price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -88,6 +95,7 @@ class PortfolioItem(models.Model):
         indexes = [
             models.Index(fields=['user', 'status']),
             models.Index(fields=['vault_location']),
+            models.Index(fields=['shipment']),
         ]
     
     def __str__(self):
@@ -131,3 +139,51 @@ class Transaction(models.Model):
     
     def __str__(self):
         return f"{self.user.email} - {self.transaction_type} - ${self.total_value}"
+
+
+class Shipment(models.Model):
+    """Physical shipment tracking"""
+    
+    class Status(models.TextChoices):
+        REQUESTED = 'requested', 'Requested'
+        PREPARING = 'preparing', 'Preparing'
+        SHIPPED = 'shipped', 'Shipped'
+        IN_TRANSIT = 'in_transit', 'In Transit'
+        OUT_FOR_DELIVERY = 'out_for_delivery', 'Out for Delivery'
+        DELIVERED = 'delivered', 'Delivered'
+        FAILED = 'failed', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='shipments')
+    tracking_number = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    carrier = models.CharField(max_length=50)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.REQUESTED)
+    destination_address = models.JSONField()  # Store snapshot of address
+    estimated_delivery = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'shipments'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Shipment {self.tracking_number or self.id} - {self.status}"
+
+
+class ShipmentEvent(models.Model):
+    """Shipment history events"""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    shipment = models.ForeignKey(Shipment, on_delete=models.CASCADE, related_name='events')
+    status = models.CharField(max_length=20, choices=Shipment.Status.choices)
+    description = models.TextField()
+    location = models.CharField(max_length=255, null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'shipment_events'
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.shipment.id} - {self.status} at {self.timestamp}"

@@ -23,6 +23,10 @@ class User(AbstractUser):
         choices=KYCStatus.choices,
         default=KYCStatus.UNVERIFIED
     )
+    is_email_verified = models.BooleanField(default=False)
+    otp_code = models.CharField(max_length=4, blank=True, null=True)
+    otp_created_at = models.DateTimeField(blank=True, null=True)
+    identity_document = models.FileField(upload_to='identity_documents/', blank=True, null=True)
     two_factor_enabled = models.BooleanField(default=False)
     preferred_vault = models.ForeignKey(
         'vaults.Vault',

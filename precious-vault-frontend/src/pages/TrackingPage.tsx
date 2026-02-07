@@ -1,14 +1,25 @@
 import { Layout } from '@/components/layout/Layout';
-import { useMockApp } from '@/context/MockAppContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Truck, Package, Map, CheckCircle2, Clock } from 'lucide-react';
+import { Truck, Package, Clock, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useShipments } from '@/hooks/useShipments';
 
 export default function TrackingPage() {
     const navigate = useNavigate();
-    const { deliveries } = useMockApp();
+    const { data: deliveries, isLoading } = useShipments();
+
+    if (isLoading) {
+        return (
+            <Layout>
+                <div className="container mx-auto px-4 py-8 flex flex-col items-center justify-center min-h-[400px]">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+                    <p className="text-muted-foreground italic">Fetching shipment updates...</p>
+                </div>
+            </Layout>
+        );
+    }
 
     return (
         <Layout>
@@ -18,7 +29,7 @@ export default function TrackingPage() {
                     <p className="text-muted-foreground">Monitor the status of your physical deliveries.</p>
                 </div>
 
-                {!Array.isArray(deliveries) || deliveries.length === 0 ? (
+                {!deliveries || deliveries.length === 0 ? (
                     <div className="text-center py-16 bg-muted/30 rounded-xl">
                         <Truck className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                         <h3 className="text-lg font-semibold">No Active Shipments</h3>
@@ -27,16 +38,20 @@ export default function TrackingPage() {
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        {Array.isArray(deliveries) && deliveries.map(delivery => (
+                        {deliveries.map(delivery => (
                             <Card key={delivery.id} className="overflow-hidden">
                                 <div className="bg-muted/50 p-4 border-b flex justify-between items-center">
                                     <div>
-                                        <span className="font-mono text-sm text-muted-foreground mr-2">#{delivery.trackingNumber}</span>
+                                        <span className="font-mono text-sm text-muted-foreground mr-2">
+                                            #{delivery.tracking_number || 'PENDING'}
+                                        </span>
                                         <Badge variant={delivery.status === 'delivered' ? 'default' : 'secondary'} className="capitalize">
-                                            {delivery.status}
+                                            {delivery.status.replace(/_/g, ' ')}
                                         </Badge>
                                     </div>
-                                    <span className="text-sm font-medium">Est. Arrival: {delivery.estimatedArrival}</span>
+                                    <span className="text-sm font-medium">
+                                        Est. Arrival: {delivery.estimated_delivery ? new Date(delivery.estimated_delivery).toLocaleDateString() : 'TBD'}
+                                    </span>
                                 </div>
                                 <CardContent className="p-0">
                                     <div className="grid grid-cols-1 md:grid-cols-3">
@@ -55,9 +70,9 @@ export default function TrackingPage() {
                                                 <div className="w-4 h-4 rounded-full bg-slate-300 ring-4 ring-white" />
                                             </div>
                                             <div className="absolute flex justify-between w-full max-w-md mt-6 px-0 text-xs font-bold text-slate-600">
-                                                <span>ZURICH</span>
+                                                <span>LONDON</span>
                                                 <span>TRANSIT</span>
-                                                <span>{delivery.destination.city.toUpperCase()}</span>
+                                                <span className="uppercase">{delivery.destination_address.city}</span>
                                             </div>
                                         </div>
 
@@ -69,11 +84,13 @@ export default function TrackingPage() {
                                             <div className="space-y-6 relative pl-2">
                                                 <div className="absolute top-2 bottom-2 left-[5px] w-[1px] bg-border" />
 
-                                                {delivery.history.map((event, i) => (
+                                                {delivery.events.map((event, i) => (
                                                     <div key={i} className="relative pl-6">
                                                         <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-background" />
                                                         <p className="text-sm font-medium">{event.description}</p>
-                                                        <p className="text-xs text-muted-foreground">{new Date(event.date).toLocaleDateString()} {new Date(event.date).toLocaleTimeString()}</p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {new Date(event.timestamp).toLocaleDateString()} {new Date(event.timestamp).toLocaleTimeString()}
+                                                        </p>
                                                     </div>
                                                 ))}
                                             </div>

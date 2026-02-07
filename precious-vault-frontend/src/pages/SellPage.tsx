@@ -21,6 +21,8 @@ export default function SellPage() {
   // We filter to only show items that can be sold (e.g. vaulted)
   const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
   const selected = holdings.find((h) => h.id === selectedHoldingId);
+  const spotPrice = Number(selected?.metal.current_price || 0);
+  const selectedWeight = Number(selected?.weight_oz || 0);
 
   const handleSell = () => {
     if (selected && amount) {
@@ -86,17 +88,17 @@ export default function SellPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Holdings</span>
-                      <span className="font-medium text-foreground">{holding.weight_oz} oz</span>
+                      <span className="font-medium text-foreground">{Number(holding.weight_oz)} oz</span>
                     </div>
                     <span className="text-muted-foreground">Current Value</span>
                     <span className="font-medium text-foreground">
-                      ${(holding.weight_oz * holding.metal.current_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${(Number(holding.weight_oz) * Number(holding.metal.current_price)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Market Price</span>
                     <span className="font-medium text-primary">
-                      ${holding.metal.current_price.toFixed(2)}/oz
+                      ${Number(holding.metal.current_price).toFixed(2)}/oz
                     </span>
                   </div>
                 </div>
@@ -150,7 +152,7 @@ export default function SellPage() {
                       <div className="flex justify-between font-semibold pt-2 border-t border-border">
                         <span className="text-foreground">You'll Receive</span>
                         <span className="text-success">
-                          ${(parseFloat(amount) * selected.metal.current_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          ${(parseFloat(amount) * spotPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                     </div>
@@ -161,7 +163,7 @@ export default function SellPage() {
                     size="lg"
                     className="w-full"
                     onClick={handleSell}
-                    disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > selected.weight_oz}
+                    disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > selectedWeight}
                   >
                     Continue to Sell
                   </Button>
@@ -197,19 +199,19 @@ export default function SellPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Sale Value</span>
                     <span className="text-foreground">
-                      ${(parseFloat(amount) * selected.metal.current_price).toFixed(2)}
+                      ${(parseFloat(amount) * spotPrice).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Trading Fee (0.5%)</span>
                     <span className="text-foreground">
-                      -${(parseFloat(amount) * selected.metal.current_price * 0.005).toFixed(2)}
+                      -${(parseFloat(amount) * spotPrice * 0.005).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold pt-2 border-t border-border">
                     <span className="text-foreground">You'll Receive</span>
                     <span className="text-success">
-                      ${(parseFloat(amount) * selected.metal.current_price * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${(parseFloat(amount) * spotPrice * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
@@ -249,7 +251,7 @@ export default function SellPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Added to Balance</span>
                   <span className="font-semibold text-success">
-                    +${(parseFloat(amount) * selected.metal.current_price * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    +${(parseFloat(amount) * spotPrice * 0.995).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>

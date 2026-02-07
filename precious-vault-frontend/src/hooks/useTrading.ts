@@ -15,6 +15,10 @@ export interface SellRequest {
     amount_oz: number;
 }
 
+export interface DepositRequest {
+    amount: number;
+}
+
 export const useTrading = () => {
     const queryClient = useQueryClient();
 
@@ -63,9 +67,41 @@ export const useTrading = () => {
         }
     });
 
+    const depositMutation = useMutation({
+        mutationFn: async (data: DepositRequest) => {
+            const response = await api.post('/trading/trade/deposit/', data);
+            return response.data;
+        },
+        onSuccess: () => {
+            toast.success('Deposit successful!');
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['transactions'] });
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error || 'Deposit failed');
+        }
+    });
+
+    const requestDeliveryMutation = useMutation({
+        mutationFn: async (data: any) => {
+            const response = await api.post('/trading/trade/request_delivery/', data);
+            return response.data;
+        },
+        onSuccess: () => {
+            toast.success('Delivery request submitted!');
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['transactions'] });
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error || 'Delivery request failed');
+        }
+    });
+
     return {
         buy: buyMutation,
         sell: sellMutation,
-        convert: convertMutation
+        convert: convertMutation,
+        deposit: depositMutation,
+        requestDelivery: requestDeliveryMutation
     };
 };

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
-import { user, vaults } from '@/data/mockData';
+import { useAuth } from '@/context/AuthContext';
+import { useVaults } from '@/hooks/useVaults';
+import { useSettings } from '@/hooks/useSettings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,7 +16,8 @@ import {
   Building2,
   Shield,
   Bell,
-  LogOut
+  LogOut,
+  Loader2
 } from 'lucide-react';
 import {
   Select,
@@ -26,22 +29,61 @@ import {
 import { useToast } from '@/hooks/use-toast';
 
 export default function SettingsPage() {
-  const [twoFactor, setTwoFactor] = useState(user.twoFactor);
-  const [notifications, setNotifications] = useState(user.notifications);
-  const [preferredVault, setPreferredVault] = useState(user.preferredVault);
+  const { user, logout, checkAuth } = useAuth();
+  const { data: vaults, isLoading: vaultsLoading } = useVaults();
+  const { updateProfile, toggle2FA } = useSettings();
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const handleSave = () => {
-    toast({
-      title: "Settings Saved",
-      description: "Your preferences have been updated successfully.",
-    });
+  const [firstName, setFirstName] = useState(user?.firstName || '');
+  const [lastName, setLastName] = useState(user?.lastName || '');
+  const [phone, setPhone] = useState(user?.phoneNumber || '');
+  const [preferredVault, setPreferredVault] = useState(user?.preferredVault || '');
+  const [twoFactor, setTwoFactor] = useState(user?.twoFactorEnabled || false);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Initialize state when user object becomes available
+  useEffect(() => {
+    if (user && !isInitialized) {
+      setFirstName(user.firstName || '');
+      setLastName(user.lastName || '');
+      setPhone(user.phoneNumber || '');
+      setPreferredVault(user.preferredVault || '');
+      setTwoFactor(user.twoFactorEnabled);
+      setIsInitialized(true);
+    }
+  }, [user, isInitialized]);
+
+  const handleSave = async () => {
+    try {
+      await updateProfile.mutateAsync({
+        first_name: firstName,
+        last_name: lastName,
+        phone_number: phone,
+        preferred_vault: preferredVault || undefined
+      });
+      await checkAuth(); // Refresh profile in context
+    } catch (error) {
+      console.error("Save failed", error);
+    }
+  };
+
+  const handleToggle2FA = async (enabled: boolean) => {
+    try {
+      await toggle2FA.mutateAsync(enabled);
+      setTwoFactor(enabled);
+      await checkAuth();
+    } catch (error) {
+      console.error("2FA toggle failed", error);
+    }
   };
 
   const handleLogout = () => {
+    logout();
     navigate('/');
   };
+
+  if (!user) return null;
 
   return (
     <Layout>
@@ -61,32 +103,36 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="name">Full Name</Label>
-                <Input id="name" defaultValue={user.name} className="mt-2" />
+                <Label htmlFor="firstName">First Name</Label>
+                <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-2" />
               </div>
               <div>
-                <Label htmlFor="email">Email</Label>
-                <div className="relative">
-                  <Input id="email" defaultValue={user.email} className="mt-2 pl-10" />
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 mt-1 h-4 w-4 text-muted-foreground" />
-                </div>
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-2" />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="phone">Phone</Label>
+                <Label htmlFor="email">Email</Label>
                 <div className="relative">
-                  <Input id="phone" defaultValue={user.phone} className="mt-2 pl-10" />
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 mt-1 h-4 w-4 text-muted-foreground" />
+                  <Input id="email" value={user.email} disabled className="mt-2 pl-10 opacity-70" />
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 mt-1 h-4 w-4 text-muted-foreground" />
                 </div>
               </div>
               <div>
-                <Label>Member Since</Label>
+                <Label htmlFor="phone">Phone</Label>
                 <div className="relative">
-                  <Input value={user.joinDate} disabled className="mt-2 pl-10" />
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 mt-1 h-4 w-4 text-muted-foreground" />
+                  <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-2 pl-10" />
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 mt-1 h-4 w-4 text-muted-foreground" />
                 </div>
+              </div>
+            </div>
+            <div>
+              <Label>Member Since</Label>
+              <div className="relative">
+                <Input value="Feb 2026" disabled className="mt-2 pl-10 opacity-70" />
+                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 mt-1 h-4 w-4 text-muted-foreground" />
               </div>
             </div>
           </div>
@@ -103,13 +149,13 @@ export default function SettingsPage() {
             <Label>Preferred Storage Location</Label>
             <Select value={preferredVault} onValueChange={setPreferredVault}>
               <SelectTrigger className="mt-2">
-                <SelectValue />
+                <SelectValue placeholder="Select a vault" />
               </SelectTrigger>
               <SelectContent>
-                {vaults.map((vault) => (
-                  <SelectItem key={vault.id} value={vault.city}>
+                {Array.isArray(vaults) && vaults.map((vault) => (
+                  <SelectItem key={vault.id} value={vault.id}>
                     <span className="flex items-center gap-2">
-                      <span>{vault.flag}</span>
+                      <span>{vault.flag_emoji || '🌐'}</span>
                       <span>{vault.city}, {vault.country}</span>
                     </span>
                   </SelectItem>
@@ -137,7 +183,7 @@ export default function SettingsPage() {
                   Add an extra layer of security to your account
                 </p>
               </div>
-              <Switch checked={twoFactor} onCheckedChange={setTwoFactor} />
+              <Switch checked={twoFactor} onCheckedChange={handleToggle2FA} />
             </div>
 
             <div className="flex items-center justify-between">
@@ -147,14 +193,15 @@ export default function SettingsPage() {
                   Receive updates about your transactions and account
                 </p>
               </div>
-              <Switch checked={notifications} onCheckedChange={setNotifications} />
+              <Switch checked={true} disabled />
             </div>
           </div>
         </div>
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-4">
-          <Button variant="gold" size="lg" className="flex-1" onClick={handleSave}>
+          <Button variant="gold" size="lg" className="flex-1" onClick={handleSave} disabled={updateProfile.isPending}>
+            {updateProfile.isPending ? <Loader2 className="animate-spin mr-2" /> : null}
             Save Changes
           </Button>
           <Button
@@ -169,7 +216,7 @@ export default function SettingsPage() {
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-6">
-          Settings changes are saved automatically.
+          Settings changes are saved to your profile.
         </p>
       </div>
     </Layout>

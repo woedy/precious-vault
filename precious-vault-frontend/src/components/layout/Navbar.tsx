@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Menu, X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+import { Wallet } from 'lucide-react';
 
 const navLinks = [
   { name: 'Dashboard', path: '/dashboard' },
@@ -15,6 +17,7 @@ const navLinks = [
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, isAuthenticated } = useAuth();
   const location = useLocation();
   const isLanding = location.pathname === '/';
   const isAuth = location.pathname === '/login' || location.pathname === '/signup';
@@ -59,6 +62,20 @@ export function Navbar() {
                 </>
               ) : (
                 <>
+                  <div className="flex items-center gap-4 bg-accent/50 px-3 py-1.5 rounded-lg border border-border mr-2">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground leading-none">Cash Balance</span>
+                      <span className="text-sm font-bold text-foreground font-mono">
+                        ${(user?.walletBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <Link to="/deposit">
+                      <Button variant="gold" size="sm" className="h-8 px-2">
+                        Deposit
+                      </Button>
+                    </Link>
+                  </div>
+
                   {navLinks.map((link) => (
                     <Link key={link.path} to={link.path}>
                       <Button
@@ -72,7 +89,7 @@ export function Navbar() {
                       </Button>
                     </Link>
                   ))}
-                  <Link to="/settings" className="ml-2">
+                  <Link to="/settings" className="ml-1">
                     <Button variant="outline" size="sm">
                       Settings
                     </Button>

@@ -26,8 +26,9 @@ export default function ConvertPage() {
   const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
   const selected = holdings.find((h) => h.id === selectedHoldingId);
   const amountValue = amount ? parseFloat(amount) : 0;
-  // Use current_price from metal
-  const cashValue = selected ? amountValue * selected.metal.current_price * 0.98 : 0; // 2% conversion fee
+  // Use current_price from metal (cast to number for string safety)
+  const spotPrice = Number(selected?.metal.current_price || 0);
+  const cashValue = selected ? amountValue * spotPrice * 0.98 : 0; // 2% conversion fee
 
   const handleConvert = () => {
     if (selected && amount) {
@@ -146,13 +147,13 @@ export default function ConvertPage() {
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Metal Value</span>
                         <span className="text-foreground">
-                          ${(amountValue * selected.metal.current_price).toFixed(2)}
+                          ${(amountValue * spotPrice).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Conversion Fee (2%)</span>
                         <span className="text-foreground">
-                          -${(amountValue * selected.metal.current_price * 0.02).toFixed(2)}
+                          -${(amountValue * spotPrice * 0.02).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between font-semibold pt-2 border-t border-border">
@@ -211,13 +212,13 @@ export default function ConvertPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Metal Value</span>
                     <span className="text-foreground">
-                      ${(amountValue * selected.metal.current_price).toFixed(2)}
+                      ${(amountValue * spotPrice).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Conversion Fee</span>
                     <span className="text-foreground">
-                      -${(amountValue * selected.metal.current_price * 0.02).toFixed(2)}
+                      -${(amountValue * spotPrice * 0.02).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold pt-2 border-t border-border">

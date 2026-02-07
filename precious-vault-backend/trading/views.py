@@ -8,16 +8,17 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.db import transaction as db_transaction
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import date, timedelta
 import uuid
 
-from .models import Metal, Product, PortfolioItem, Transaction
+from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
 from vaults.models import Vault
 from users.models import Wallet
 from .serializers import (
     MetalSerializer, ProductSerializer, PortfolioItemSerializer,
-    TransactionSerializer, BuyMetalSerializer, SellMetalSerializer, ConvertMetalSerializer
+    TransactionSerializer, BuyMetalSerializer, SellMetalSerializer, ConvertMetalSerializer,
+    DeliveryRequestSerializer, ShipmentSerializer
 )
 
 
@@ -27,6 +28,17 @@ class MetalViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Metal.objects.all()
     serializer_class = MetalSerializer
     permission_classes = [AllowAny]
+
+
+class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
+    """Shipment viewset - read only for users"""
+    
+    serializer_class = ShipmentSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Users can only see their own shipments"""
+        return Shipment.objects.filter(user=self.request.user).prefetch_related('events', 'items')
 
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
@@ -132,10 +144,17 @@ class TradingViewSet(viewsets.ViewSet):
         premium_cost = total_weight * product.premium_per_oz
         total_cost = spot_cost + premium_cost
         
+        # Check wallet existence
+        if not hasattr(user, 'wallet'):
+            return Response(
+                {'error': 'User wallet not found. Please contact support.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Check wallet balance
         if user.wallet.cash_balance < total_cost:
             return Response(
-                {'error': 'Insufficient funds'},
+                {'error': 'Insufficient funds in your cash balance. Please deposit funds before purchasing.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -307,3 +326,135 @@ class TradingViewSet(viewsets.ViewSet):
             'transaction': TransactionSerializer(transaction).data,
             'cash_received': float(net_proceeds)
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def deposit(self, request):
+        """Deposit funds into wallet"""
+        amount = request.data.get('amount')
+        if not amount:
+            return Response({'error': 'Amount is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            amount_decimal = Decimal(str(amount))
+            if amount_decimal <= 0:
+                return Response({'error': 'Amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, TypeError, InvalidOperation):
+            return Response({'error': 'Invalid amount format'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = request.user
+        
+        with db_transaction.atomic():
+            # Add to wallet
+            if not hasattr(user, 'wallet'):
+                Wallet.objects.create(user=user)
+            
+            user.wallet.cash_balance += amount_decimal
+            user.wallet.save()
+            
+            # Create transaction
+            transaction = Transaction.objects.create(
+                user=user,
+                transaction_type=Transaction.TransactionType.DEPOSIT,
+                total_value=amount_decimal,
+                status=Transaction.Status.COMPLETED
+            )
+            
+        return Response({
+            'message': 'Deposit successful',
+            'transaction': TransactionSerializer(transaction).data,
+            'new_balance': float(user.wallet.cash_balance)
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def request_delivery(self, request):
+        """Request physical delivery of vaulted items"""
+        serializer = DeliveryRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = request.user
+        data = serializer.validated_data
+        
+        with db_transaction.atomic():
+            total_oz = Decimal('0')
+            total_value = Decimal('0')
+            primary_metal = None
+            
+            for item_data in data['items']:
+                portfolio_item = get_object_or_404(
+                    PortfolioItem,
+                    id=item_data['portfolio_item_id'],
+                    user=user,
+                    status=PortfolioItem.Status.VAULTED
+                )
+                
+                # Check quantity
+                if item_data['quantity'] > portfolio_item.quantity:
+                    return Response(
+                        {'error': f'Insufficient quantity for item {portfolio_item.id}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Update item status
+                # If partial delivery, we might need to split the item, but for now we assume full item withdrawal
+                # based on the frontend logic where you select "items" (which are PortfolioItems)
+                portfolio_item.status = PortfolioItem.Status.IN_TRANSIT
+                portfolio_item.save()
+                
+                total_oz += portfolio_item.weight_oz
+                total_value += portfolio_item.weight_oz * portfolio_item.metal.current_price
+                if not primary_metal:
+                    primary_metal = portfolio_item.metal
+
+            # Calculate fees (approximation based on frontend)
+            handling_fee = Decimal(str(len(data['items']) * 50))
+            shipping_fee = Decimal('500' if data['carrier'] == 'brinks' else '150')
+            insurance_fee = total_value * Decimal('0.01')
+            total_fees = handling_fee + shipping_fee + insurance_fee
+            
+            # Note: In a real system we would deduct these fees from the wallet, 
+            # but for now we'll just record them in the transaction.
+            if user.wallet.cash_balance < total_fees:
+                 return Response(
+                    {'error': f'Insufficient funds to cover delivery fees (${total_fees:,.2f})'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            user.wallet.cash_balance -= total_fees
+            user.wallet.save()
+
+            # Create transaction
+            transaction = Transaction.objects.create(
+                user=user,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                metal=primary_metal,
+                amount_oz=total_oz,
+                total_value=total_value + total_fees,
+                fees=total_fees,
+                status=Transaction.Status.COMPLETED
+            )
+            
+            # Create Shipment
+            shipment = Shipment.objects.create(
+                user=user,
+                carrier=data['carrier'],
+                destination_address=data['destination'],
+                status=Shipment.Status.REQUESTED
+            )
+            
+            # Link items to shipment
+            for item_data in data['items']:
+                PortfolioItem.objects.filter(id=item_data['portfolio_item_id']).update(shipment=shipment)
+            
+            # Create initial event
+            ShipmentEvent.objects.create(
+                shipment=shipment,
+                status=Shipment.Status.REQUESTED,
+                description="Physical delivery request received and processing initiated.",
+                location="Main Vault"
+            )
+            
+        return Response({
+            'message': 'Delivery request submitted successfully',
+            'transaction': TransactionSerializer(transaction).data,
+            'shipment': ShipmentSerializer(shipment).data
+        }, status=status.HTTP_201_CREATED)

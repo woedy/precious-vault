@@ -3,7 +3,8 @@ Trading serializers
 """
 
 from rest_framework import serializers
-from .models import Metal, Product, PortfolioItem, Transaction
+from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
+from vaults.serializers import VaultSerializer
 
 
 class MetalSerializer(serializers.ModelSerializer):
@@ -35,6 +36,7 @@ class PortfolioItemSerializer(serializers.ModelSerializer):
     
     metal = MetalSerializer(read_only=True)
     product = ProductSerializer(read_only=True)
+    vault_location = VaultSerializer(read_only=True)
     vault_location_name = serializers.CharField(source='vault_location.name', read_only=True)
     current_value = serializers.SerializerMethodField()
     
@@ -94,3 +96,41 @@ class ConvertMetalSerializer(serializers.Serializer):
     
     portfolio_item_id = serializers.UUIDField()
     amount_oz = serializers.DecimalField(max_digits=10, decimal_places=4, min_value=0.0001)
+
+
+class ShipmentEventSerializer(serializers.ModelSerializer):
+    """Shipment event serializer"""
+    
+    class Meta:
+        model = ShipmentEvent
+        fields = ['id', 'status', 'description', 'location', 'timestamp']
+
+
+class ShipmentSerializer(serializers.ModelSerializer):
+    """Shipment serializer"""
+    
+    events = ShipmentEventSerializer(many=True, read_only=True)
+    items_count = serializers.IntegerField(source='items.count', read_only=True)
+    
+    class Meta:
+        model = Shipment
+        fields = [
+            'id', 'tracking_number', 'carrier', 'status', 
+            'destination_address', 'estimated_delivery', 
+            'created_at', 'updated_at', 'events', 'items_count'
+        ]
+        read_only_fields = ['id', 'tracking_number', 'status', 'created_at', 'updated_at']
+
+
+class DeliveryRequestItemSerializer(serializers.Serializer):
+    """Item in a delivery request"""
+    portfolio_item_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class DeliveryRequestSerializer(serializers.Serializer):
+    """Physical delivery request serializer"""
+    
+    items = DeliveryRequestItemSerializer(many=True)
+    carrier = serializers.ChoiceField(choices=['fedex', 'brinks'])
+    destination = serializers.JSONField()  # street, city, zip_code, country

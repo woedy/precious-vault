@@ -28,7 +28,7 @@ wheels/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-/media
+/media/
 /staticfiles
 /static
 
@@ -55,3 +55,7 @@ htmlcov/
 # Celery
 celerybeat-schedule
 celerybeat.pid
+
+# Emails
+/sent_emails/
+

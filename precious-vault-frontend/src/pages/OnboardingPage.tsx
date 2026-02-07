@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -16,19 +16,32 @@ export default function OnboardingPage() {
     const [step, setStep] = useState<Step>('account');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-    const { checkAuth } = useAuth();
+    const { user, checkAuth } = useAuth();
     const navigate = useNavigate();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+    useEffect(() => {
+        // Redirect if not verified
+        if (user && !user.isEmailVerified) {
+            navigate('/verify-email');
+        }
+    }, [user, navigate]);
 
     // Form States
     const [formData, setFormData] = useState({
-        firstName: '',
-        lastName: '',
         phone: '',
         street: '',
         city: '',
         zip: '',
         country: 'Switzerland'
     });
+
+    useEffect(() => {
+        if (user?.phoneNumber && !formData.phone) {
+            setFormData(prev => ({ ...prev, phone: user.phoneNumber || '' }));
+        }
+    }, [user]);
 
     const getProgress = () => {
         switch (step) {
@@ -45,15 +58,32 @@ export default function OnboardingPage() {
         setStep('identity');
     };
 
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setSelectedFile(e.target.files[0]);
+        }
+    };
+
     const handleIdentitySubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!selectedFile) {
+            setError('Please upload your government ID to continue.');
+            return;
+        }
+
         setIsLoading(true);
         setError('');
         try {
-            // Submit complete profile and address data
+            // 1. Upload the ID document
+            const uploadFormData = new FormData();
+            uploadFormData.append('document', selectedFile);
+            await api.post('/users/profile/upload_id/', uploadFormData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            // 2. Submit complete profile and address data
             await api.post('/users/profile/submit_kyc/', {
-                first_name: formData.firstName,
-                last_name: formData.lastName,
                 phone_number: formData.phone,
                 street: formData.street,
                 city: formData.city,
@@ -66,8 +96,8 @@ export default function OnboardingPage() {
             await checkAuth();
             setStep('security');
         } catch (err: any) {
-            console.error('KYC submission error:', err);
-            setError(err.response?.data?.message || 'Verification failed. Please try again.');
+            console.error('Identity submission error:', err);
+            setError(err.response?.data?.error || err.response?.data?.message || 'Verification failed. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -116,27 +146,9 @@ export default function OnboardingPage() {
 
                     {step === 'account' && (
                         <form id="account-form" onSubmit={handleAccountSubmit} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="firstName">First Name</Label>
-                                    <Input
-                                        id="firstName"
-                                        required
-                                        value={formData.firstName}
-                                        onChange={e => setFormData({ ...formData, firstName: e.target.value })}
-                                        placeholder="John"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="lastName">Last Name</Label>
-                                    <Input
-                                        id="lastName"
-                                        required
-                                        value={formData.lastName}
-                                        onChange={e => setFormData({ ...formData, lastName: e.target.value })}
-                                        placeholder="Doe"
-                                    />
-                                </div>
+                            <div className="bg-muted/30 p-4 rounded-lg border border-border flex gap-3 text-sm text-muted-foreground mb-6">
+                                <Shield className="h-5 w-5 text-primary shrink-0" />
+                                <p>Welcome, <span className="text-foreground font-semibold">{user?.firstName} {user?.lastName}</span>. Let's finish setting up your account.</p>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="phone">Phone Number (for secure alerts)</Label>
@@ -194,12 +206,30 @@ export default function OnboardingPage() {
                                 </div>
                             </div>
 
-                            <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer group">
-                                <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-colors">
-                                    <Upload className="h-6 w-6 text-muted-foreground group-hover:text-primary" />
+                            <div
+                                onClick={() => fileInputRef.current?.click()}
+                                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer group ${selectedFile ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
+                            >
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    className="hidden"
+                                    accept="image/*,.pdf"
+                                    onChange={handleFileChange}
+                                />
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 transition-colors ${selectedFile ? 'bg-primary/20' : 'bg-muted group-hover:bg-primary/20'}`}>
+                                    {selectedFile ? (
+                                        <CheckCircle2 className="h-6 w-6 text-primary" />
+                                    ) : (
+                                        <Upload className="h-6 w-6 text-muted-foreground group-hover:text-primary" />
+                                    )}
                                 </div>
-                                <h3 className="font-semibold mb-1">Upload Government ID</h3>
-                                <p className="text-sm text-muted-foreground">Passport or Driver's License</p>
+                                <h3 className="font-semibold mb-1">
+                                    {selectedFile ? 'ID Document Selected' : 'Upload Government ID'}
+                                </h3>
+                                <p className="text-sm text-muted-foreground">
+                                    {selectedFile ? selectedFile.name : 'Passport or Driver\'s License'}
+                                </p>
                             </div>
                         </form>
                     )}

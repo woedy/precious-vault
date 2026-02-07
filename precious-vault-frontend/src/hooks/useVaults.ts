@@ -7,9 +7,10 @@ export interface Vault {
     location_name: string;
     city: string;
     country: string;
-    flag: string; // Backend might not send flag, may need mapping
+    flag?: string; // Legacy
+    flag_emoji: string;
     storage_fee_percent: number;
-    description?: string; // Add if needed
+    description?: string;
     is_active: boolean;
 }
 

@@ -4,6 +4,7 @@ User serializers
 
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from djoser.serializers import UserCreatePasswordRetypeSerializer as DjoserUserCreateSerializer
 from .models import User, Address, Wallet
 
 
@@ -35,40 +36,62 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name', 
-            'phone_number', 'kyc_status', 'two_factor_enabled',
+            'phone_number', 'kyc_status', 'is_email_verified', 'identity_document', 'two_factor_enabled',
             'preferred_vault', 'addresses', 'wallet', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'kyc_status', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'kyc_status', 'is_email_verified', 'created_at', 'updated_at']
+
+    def update(self, instance, validated_data):
+        first_name = validated_data.get('first_name')
+        last_name = validated_data.get('last_name')
+        phone_number = validated_data.get('phone_number')
+        
+        if first_name is not None:
+            instance.first_name = first_name
+        if last_name is not None:
+            instance.last_name = last_name
+        if phone_number is not None:
+            instance.phone_number = phone_number
+            
+        return super().update(instance, validated_data)
 
 
-class UserCreateSerializer(serializers.ModelSerializer):
+class UserCreateSerializer(DjoserUserCreateSerializer):
     """User registration serializer"""
+    first_name = serializers.CharField(required=True)
+    last_name = serializers.CharField(required=True)
     
-    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    password2 = serializers.CharField(write_only=True, required=True)
-    
-    class Meta:
+    class Meta(DjoserUserCreateSerializer.Meta):
         model = User
-        fields = ['email', 'username', 'password', 'password2', 'first_name', 'last_name']
-    
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password2']:
-            raise serializers.ValidationError({"password": "Password fields didn't match."})
-        return attrs
-    
+        fields = tuple(DjoserUserCreateSerializer.Meta.fields) + (
+            'first_name',
+            'last_name',
+        )
+
     def create(self, validated_data):
-        validated_data.pop('password2')
-        user = User.objects.create_user(**validated_data)
-        # Create wallet for new user
-        Wallet.objects.create(user=user)
+        # Extract names ourselves to be 100% sure they aren't lost
+        first_name = validated_data.get('first_name', '')
+        last_name = validated_data.get('last_name', '')
+        
+        # Djoser and create_user handle password and username
+        user = super().create(validated_data)
+        
+        # Explicitly update name fields after creation
+        user.first_name = first_name
+        user.last_name = last_name
+        user.save(update_fields=['first_name', 'last_name'])
+        
+        # Create wallet for new user if it doesn't already exist
+        if not hasattr(user, 'wallet'):
+            Wallet.objects.create(user=user)
         return user
 
 
 class KYCSubmissionSerializer(serializers.Serializer):
     """KYC submission serializer"""
     
-    first_name = serializers.CharField(max_length=150)
-    last_name = serializers.CharField(max_length=150)
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     phone_number = serializers.CharField(max_length=20)
     street = serializers.CharField(max_length=255)
     city = serializers.CharField(max_length=100)

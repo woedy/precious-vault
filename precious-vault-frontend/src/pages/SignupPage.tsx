@@ -48,8 +48,8 @@ export default function SignupPage() {
       const response = await api.post('/auth/jwt/create/', { email, password });
       await login(response.data);
 
-      // 3. Navigate to onboarding
-      navigate('/onboarding');
+      // 3. Navigate to verification
+      navigate('/verify-email');
 
     } catch (err: any) {
       console.error('Signup error:', err);

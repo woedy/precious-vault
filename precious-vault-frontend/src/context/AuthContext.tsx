@@ -9,10 +9,19 @@ export interface UserProfile {
     username: string;
     firstName: string;
     lastName: string;
+    isEmailVerified: boolean;
     kycStatus: KYCStatus;
     twoFactorEnabled: boolean;
     isAdmin: boolean;
     preferredVault?: string;
+    phoneNumber?: string;
+    address?: {
+        street: string;
+        city: string;
+        zipCode: string;
+        country: string;
+    };
+    walletBalance: number;
 }
 
 interface AuthContextType {
@@ -46,16 +55,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // But we can map it here.
 
             const userData = response.data;
+            const addressData = userData.addresses?.[0];
             const mappedUser: UserProfile = {
                 id: userData.id,
                 email: userData.email,
                 username: userData.username,
                 firstName: userData.first_name,
                 lastName: userData.last_name,
-                kycStatus: userData.kyc_status, // Ensure backend uses 'kyc_status'
+                isEmailVerified: userData.is_email_verified,
+                kycStatus: userData.kyc_status,
                 twoFactorEnabled: userData.two_factor_enabled,
                 isAdmin: userData.is_staff,
-                preferredVault: userData.preferred_vault
+                preferredVault: userData.preferred_vault,
+                phoneNumber: userData.phone_number,
+                address: addressData ? {
+                    street: addressData.street,
+                    city: addressData.city,
+                    zipCode: addressData.zip_code,
+                    country: addressData.country,
+                } : undefined,
+                walletBalance: Number(userData.wallet?.cash_balance || 0)
             };
 
             setUser(mappedUser);

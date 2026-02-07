@@ -13,11 +13,13 @@ import VaultsPage from "./pages/VaultsPage";
 import ConvertPage from "./pages/ConvertPage";
 import ActivityPage from "./pages/ActivityPage";
 import SettingsPage from "./pages/SettingsPage";
+import EmailVerificationPage from "./pages/EmailVerificationPage";
 import NotFound from "./pages/NotFound";
 import { MockAppProvider } from "./context/MockAppContext";
 import { AuthProvider } from "./context/AuthContext";
 import OnboardingPage from "./pages/OnboardingPage";
 import DeliveryPage from "./pages/DeliveryPage";
+import DepositPage from './pages/DepositPage';
 import TrackingPage from "./pages/TrackingPage";
 import AboutPage from "./pages/company/AboutPage";
 import CareersPage from "./pages/company/CareersPage";
@@ -41,6 +43,7 @@ const App = () => (
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/verify-email" element={<EmailVerificationPage />} />
               <Route path="/onboarding" element={<OnboardingPage />} /> {/* New Route */}
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/buy" element={<BuyPage />} />
@@ -48,10 +51,9 @@ const App = () => (
               <Route path="/vaults" element={<VaultsPage />} />
               <Route path="/convert" element={<ConvertPage />} />
               <Route path="/activity" element={<ActivityPage />} />
-              <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/delivery" element={<DeliveryPage />} />
-              <Route path="/delivery" element={<DeliveryPage />} />
+              <Route path="/deposit" element={<DepositPage />} />
               <Route path="/track" element={<TrackingPage />} />
 
               {/* Company Pages */}
