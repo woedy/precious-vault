@@ -38,86 +38,62 @@ def log_admin_action(admin_user, action_type, target_type, target_id, details=No
     return create_audit_log(admin_user, action_type, target_type, target_id, details)
 
 
+
 def send_kyc_decision_email(user, approved, reason=None):
     """Send email notification for KYC decision"""
+    from utils.emails import send_html_email
+    
     if approved:
         subject = "KYC Approved - Precious Vault"
-        message = (
-            f"Dear {user.first_name or user.email},\n\n"
-            f"Your identity verification has been approved. "
-            f"You can now trade precious metals on the platform.\n\n"
-            f"Best regards,\n"
-            f"Precious Vault Team"
-        )
     else:
         subject = "KYC Requires Attention - Precious Vault"
-        message = (
-            f"Dear {user.first_name or user.email},\n\n"
-            f"Your identity verification requires attention.\n"
-            f"Reason: {reason or 'Please review your submitted documents'}\n\n"
-            f"Please resubmit your documents or contact support for assistance.\n\n"
-            f"Best regards,\n"
-            f"Precious Vault Team"
-        )
-    
-    send_mail(
-        subject,
-        message,
-        settings.EMAIL_HOST_USER or "noreply@preciousvault.com",
-        [user.email],
-        fail_silently=False,
+        
+    send_html_email(
+        subject=subject,
+        template_name="emails/kyc_status.html",
+        context={
+            'user': user, 
+            'approved': approved, 
+            'reason': reason
+        },
+        recipient_list=[user.email]
     )
 
 
 def send_account_status_email(user, suspended, reason=None):
     """Send email notification for account status change"""
+    from utils.emails import send_html_email
+    
     if suspended:
         subject = "Account Suspended - Precious Vault"
-        message = (
-            f"Dear {user.first_name or user.email},\n\n"
-            f"Your account has been suspended.\n"
-            f"Reason: {reason or 'Policy violation'}\n\n"
-            f"Please contact support for more information.\n\n"
-            f"Best regards,\n"
-            f"Precious Vault Team"
-        )
     else:
         subject = "Account Activated - Precious Vault"
-        message = (
-            f"Dear {user.first_name or user.email},\n\n"
-            f"Your account has been reactivated. "
-            f"You can now access the platform.\n\n"
-            f"Best regards,\n"
-            f"Precious Vault Team"
-        )
-    
-    send_mail(
-        subject,
-        message,
-        settings.EMAIL_HOST_USER or "noreply@preciousvault.com",
-        [user.email],
-        fail_silently=False,
+        
+    send_html_email(
+        subject=subject,
+        template_name="emails/account_status.html",
+        context={
+            'user': user, 
+            'suspended': suspended, 
+            'reason': reason
+        },
+        recipient_list=[user.email]
     )
 
 
 def send_shipment_update_email(shipment):
     """Send email notification for shipment status update"""
+    from utils.emails import send_html_email
+    
     user = shipment.user
     subject = f"Shipment Update - {shipment.tracking_number or 'Your Order'}"
-    message = (
-        f"Dear {user.first_name or user.email},\n\n"
-        f"Your shipment status has been updated to: {shipment.get_status_display()}\n"
-        f"Tracking Number: {shipment.tracking_number or 'Pending'}\n"
-        f"Carrier: {shipment.carrier}\n\n"
-        f"You can track your shipment in your account dashboard.\n\n"
-        f"Best regards,\n"
-        f"Precious Vault Team"
-    )
     
-    send_mail(
-        subject,
-        message,
-        settings.EMAIL_HOST_USER or "noreply@preciousvault.com",
-        [user.email],
-        fail_silently=False,
+    send_html_email(
+        subject=subject,
+        template_name="emails/shipment_update.html",
+        context={
+            'user': user, 
+            'shipment': shipment
+        },
+        recipient_list=[user.email]
     )

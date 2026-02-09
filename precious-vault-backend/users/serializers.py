@@ -79,7 +79,24 @@ class UserCreateSerializer(DjoserUserCreateSerializer):
         # Explicitly update name fields after creation
         user.first_name = first_name
         user.last_name = last_name
-        user.save(update_fields=['first_name', 'last_name'])
+        
+        # Generate and Send OTP for new registration
+        import random
+        from django.utils import timezone
+        from utils.emails import send_html_email
+        
+        otp = f"{random.randint(1000, 9999)}"
+        user.otp_code = otp
+        user.otp_created_at = timezone.now()
+        user.save(update_fields=['first_name', 'last_name', 'otp_code', 'otp_created_at'])
+        
+        # Send OTP email
+        send_html_email(
+            subject="Welcome to Precious Vault - Verify Your Email",
+            template_name="emails/otp.html",
+            context={'user': user, 'otp': otp},
+            recipient_list=[user.email]
+        )
         
         # Create wallet for new user if it doesn't already exist
         if not hasattr(user, 'wallet'):

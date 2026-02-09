@@ -79,20 +79,34 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def send_otp(self, request):
-        """Generate and send 4-digit OTP"""
+        """Generate and send 4-digit OTP with a 60-second cooldown"""
         user = request.user
+        
+        if user.otp_created_at and (timezone.now() - user.otp_created_at).total_seconds() < 10:
+            return Response(
+                {'message': 'Verification code already sent to your email.'}, 
+                status=status.HTTP_200_OK
+            )
+        
+        # Prevent rapid-fire duplicate requests (60s cooldown)
+        if user.otp_created_at and (timezone.now() - user.otp_created_at).total_seconds() < 60:
+            return Response(
+                {'message': 'Please wait a moment before requesting another code.'}, 
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         otp = f"{random.randint(1000, 9999)}"
         user.otp_code = otp
         user.otp_created_at = timezone.now()
-        user.save()
+        user.save(update_fields=['otp_code', 'otp_created_at'])
         
-        # Send email (using console backend by default in settings)
-        send_mail(
-            "Precious Vault - Your Verification Code",
-            f"Your verification code is: {otp}",
-            settings.EMAIL_HOST_USER or "noreply@preciousvault.com",
-            [user.email],
-            fail_silently=False,
+        # Send email
+        from utils.emails import send_html_email
+        send_html_email(
+            subject="Precious Vault - Your Verification Code",
+            template_name="emails/otp.html",
+            context={'user': user, 'otp': otp},
+            recipient_list=[user.email]
         )
         
         return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)

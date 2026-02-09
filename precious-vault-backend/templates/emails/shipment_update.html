@@ -1,0 +1,34 @@
+{% extends 'emails/base_email.html' %}
+
+{% block title %}Shipment Notification{% endblock %}
+
+{% block content %}
+<div class="greeting">Shipment Update.</div>
+
+<div class="message">
+    <p>There is a new status update regarding your precious metals shipment.</p>
+
+    <div style="margin: 30px 0; padding: 20px; border: 1px solid #f0f0f0;">
+        <table style="width: 100%; font-size: 14px; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 10px 0; color: #888;">STATUS</td>
+                <td style="padding: 10px 0; font-weight: 600; color: #D4AF37; text-transform: uppercase;">
+                    {{ shipment.get_status_display }}
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 10px 0; color: #888;">TRACKING</td>
+                <td style="padding: 10px 0; font-weight: 600;">{{ shipment.tracking_number|default:"Pending" }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px 0; color: #888;">CARRIER</td>
+                <td style="padding: 10px 0; font-weight: 600;">{{ shipment.carrier|default:"Standard Secure" }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="btn-container">
+        <a href="{{ site_url }}/dashboard/shipments" class="btn">Track Package</a>
+    </div>
+</div>
+{% endblock %}

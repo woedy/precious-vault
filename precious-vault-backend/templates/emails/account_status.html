@@ -1,0 +1,27 @@
+{% extends 'emails/base_email.html' %}
+
+{% block title %}Account Status Change{% endblock %}
+
+{% block content %}
+<div class="greeting">
+    {% if suspended %}Account Suspended.{% else %}Account Restored.{% endif %}
+</div>
+
+<div class="message">
+    {% if suspended %}
+    <p>Your account access has been temporarily restricted.</p>
+    <p style="padding: 20px; border-left: 2px solid #D4AF37; margin: 20px 0; color: #666;">
+        <strong>Reason:</strong> {{ reason|default:"Awaiting administrative review." }}
+    </p>
+    <p>If you have questions, please reach out to our support team.</p>
+    <div class="btn-container">
+        <a href="{{ site_url }}/contact" class="btn">Contact Support</a>
+    </div>
+    {% else %}
+    <p>Your account access has been fully restored. You may now log in to the platform.</p>
+    <div class="btn-container">
+        <a href="{{ site_url }}/login" class="btn">Login to Platform</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
