@@ -16,7 +16,7 @@ dist/
 # Environment
 .env
 .env.local
-.env.prod.example
+.env.prod
 
 # IDE
 .vscode/

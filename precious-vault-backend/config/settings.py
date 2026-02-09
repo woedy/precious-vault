@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'trading.apps.TradingConfig',
     'vaults.apps.VaultsConfig',
     'delivery.apps.DeliveryConfig',
+    'admin_api.apps.AdminApiConfig',
 ]
 
 MIDDLEWARE = [
@@ -146,6 +147,8 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S%z',
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
 }
 
 # JWT Settings
@@ -155,6 +158,7 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'TOKEN_OBTAIN_SERIALIZER': 'users.jwt_serializers.CustomTokenObtainPairSerializer',
 }
 
 # CORS Settings
@@ -214,6 +218,7 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 
 # Djoser Settings (for user registration/auth)
 DJOSER = {
+    'LOGIN_FIELD': 'email',  # Use email for login instead of username
     'USER_CREATE_PASSWORD_RETYPE': True,
     'SEND_ACTIVATION_EMAIL': False,
     'SERIALIZERS': {

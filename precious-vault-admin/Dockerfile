@@ -1,4 +1,4 @@
-# Frontend Dockerfile
+# Admin Frontend Dockerfile
 FROM node:20-alpine as build
 
 WORKDIR /app

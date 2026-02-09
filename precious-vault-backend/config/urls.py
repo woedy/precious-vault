@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/trading/', include('trading.urls')),
     path('api/vaults/', include('vaults.urls')),
     path('api/delivery/', include('delivery.urls')),
+    path('api/admin/', include('admin_api.urls')),  # Admin API endpoints
 ]
 
 if settings.DEBUG:
