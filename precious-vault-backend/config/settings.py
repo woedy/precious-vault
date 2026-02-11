@@ -20,7 +20,7 @@ environ.Env.read_env(BASE_DIR / '.env')
 # Security
 SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'backend'])
 # Ensure localhost and 127.0.0.1 are always included for internal checks
 if 'localhost' not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append('localhost')
