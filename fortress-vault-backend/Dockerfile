@@ -37,7 +37,6 @@ COPY . .
 
 # Create staticfiles directory and set permissions
 RUN mkdir -p /app/staticfiles && \
-    chmod +x /app/entrypoint.sh && \
     useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
@@ -46,8 +45,5 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Entrypoint script to handle migrations and static files
-ENTRYPOINT ["/app/entrypoint.sh"]
-
-# Default command
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+# Default command (can be overridden in docker-compose)
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
