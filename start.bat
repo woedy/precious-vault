@@ -1,5 +1,5 @@
 @echo off
-echo 🚀 Starting Precious Vault Platform...
+echo 🚀 Starting Fortress Vault Platform...
 echo.
 
 REM Build and start infrastructure

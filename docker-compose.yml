@@ -2,11 +2,12 @@ services:
   # Database
   postgres:
     image: postgres:15-alpine
-    container_name: precious-vault-db
+    container_name: fortress-vault-db
     environment:
-      POSTGRES_DB: precious_vault
+      POSTGRES_DB: fortress_vault
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    restart: on-failure
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -17,12 +18,13 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: precious-vault-redis
+    container_name: fortress-vault-redis
+    restart: on-failure
     ports:
       - "6379:6379"
     healthcheck:
@@ -31,17 +33,18 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Backend API
   backend:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-backend
+    container_name: fortress-vault-backend
+    restart: on-failure
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
     ports:
       - "8000:8000"
     env_file:
@@ -52,17 +55,18 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Celery Worker
   celery:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-celery
-    command: celery -A config worker -l info
+    container_name: fortress-vault-celery
+    restart: on-failure
+    command: celery -A config worker -l info --concurrency=1
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
     env_file:
       - .env
     environment:
@@ -71,17 +75,18 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Celery Beat Scheduler
   celery-beat:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-celery-beat
+    container_name: fortress-vault-celery-beat
+    restart: on-failure
     command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
     env_file:
       - .env
     environment:
@@ -90,17 +95,18 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Channels (WebSocket)
   channels:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-channels
+    container_name: fortress-vault-channels
+    restart: on-failure
     command: daphne -b 0.0.0.0 -p 9000 config.asgi:application
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
     ports:
       - "9000:9000"
     env_file:
@@ -111,14 +117,14 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Frontend
   frontend:
     build:
-      context: ./precious-vault-frontend
+      context: ./fortress-vault-frontend
       dockerfile: Dockerfile
-    container_name: precious-vault-frontend
+    container_name: fortress-vault-frontend
     ports:
       - "80:80"
     environment:
@@ -127,14 +133,14 @@ services:
     depends_on:
       - backend
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Admin Frontend
   admin-frontend:
     build:
-      context: ./precious-vault-admin
+      context: ./fortress-vault-admin
       dockerfile: Dockerfile
-    container_name: precious-vault-admin
+    container_name: fortress-vault-admin
     ports:
       - "3001:80"
     environment:
@@ -142,11 +148,11 @@ services:
     depends_on:
       - backend
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
 volumes:
   postgres_data:
 
 networks:
-  precious-vault-network:
+  fortress-vault-network:
     driver: bridge

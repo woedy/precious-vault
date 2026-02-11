@@ -1,4 +1,4 @@
-# Precious Vault - Monorepo
+# Fortress Vault - Monorepo
 
 Full-stack precious metals trading platform with Django backend and React frontend.
 
@@ -68,13 +68,13 @@ docker-compose down -v
 ## Project Structure
 
 ```
-precious-vault/
+fortress-vault/
 ├── docker-compose.yml          # Main orchestration file
-├── precious-vault-frontend/    # React + TypeScript frontend
+├── fortress-vault-frontend/    # React + TypeScript frontend
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   └── src/
-└── precious-vault-backend/     # Django REST API backend
+└── fortress-vault-backend/     # Django REST API backend
     ├── Dockerfile
     ├── config/                 # Django settings
     ├── users/                  # User management
@@ -97,13 +97,13 @@ precious-vault/
 
 ### Backend Only
 ```bash
-cd precious-vault-backend
+cd fortress-vault-backend
 docker-compose up
 ```
 
 ### Frontend Only
 ```bash
-cd precious-vault-frontend
+cd fortress-vault-frontend
 npm install
 npm run dev
 ```
@@ -130,7 +130,7 @@ docker-compose build frontend
 
 ## API Documentation
 
-See `precious-vault-backend/API_REFERENCE.md` for complete API documentation.
+See `fortress-vault-backend/API_REFERENCE.md` for complete API documentation.
 
 ## Tech Stack
 
@@ -152,4 +152,4 @@ See `precious-vault-backend/API_REFERENCE.md` for complete API documentation.
 
 ## License
 
-Proprietary - Precious Vault Platform
+Proprietary - Fortress Vault Platform

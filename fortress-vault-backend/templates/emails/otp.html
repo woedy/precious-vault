@@ -1,0 +1,18 @@
+{% extends 'emails/base_email.html' %}
+
+{% block title %}Verification Code{% endblock %}
+
+{% block content %}
+<div class="greeting">Verify your email.</div>
+
+<div class="message">
+    <p>Please use the following single-use verification code to complete your registration with Fortress Vault.</p>
+
+    <div style="margin: 40px 0; font-size: 38px; font-weight: 700; color: #D4AF37; letter-spacing: 4px;">
+        {{ otp }}
+    </div>
+
+    <p style="color: #666; font-size: 14px;">This code expires in 10 minutes. If you didn't request this, you can safely
+        ignore this email.</p>
+</div>
+{% endblock %}

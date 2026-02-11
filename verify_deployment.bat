@@ -1,13 +1,13 @@
 @echo off
 echo ===================================
-echo Precious Vault Deployment Verification
+echo Fortress Vault Deployment Verification
 echo ===================================
 echo.
 
 REM Check if containers are running
 echo 1. Checking Docker containers...
 echo -----------------------------------
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | findstr precious-vault
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | findstr fortress-vault
 echo.
 
 REM Check backend health
@@ -46,7 +46,7 @@ echo.
 REM Check database
 echo 5. Checking database...
 echo -----------------------------------
-docker exec precious-vault-db pg_isready -U postgres >nul 2>&1
+docker exec fortress-vault-db pg_isready -U postgres >nul 2>&1
 if %errorlevel% equ 0 (
     echo [32m✓ PostgreSQL database is healthy[0m
 ) else (
@@ -57,7 +57,7 @@ echo.
 REM Check redis
 echo 6. Checking Redis...
 echo -----------------------------------
-docker exec precious-vault-redis redis-cli ping >nul 2>&1
+docker exec fortress-vault-redis redis-cli ping >nul 2>&1
 if %errorlevel% equ 0 (
     echo [32m✓ Redis cache is healthy[0m
 ) else (
