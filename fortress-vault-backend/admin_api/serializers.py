@@ -5,7 +5,7 @@ Admin API serializers
 from rest_framework import serializers
 from users.models import User, Address, Wallet
 from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
-from .models import AdminAction, TransactionNote
+from .models import AdminAction, TransactionNote, DevEmail
 
 
 # User Management Serializers
@@ -301,6 +301,33 @@ class AdminActionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = AdminAction
+        fields = '__all__'
+
+
+# Dev Email (SMTP disabled) serializers
+class DevEmailListSerializer(serializers.ModelSerializer):
+    recipient_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DevEmail
+        fields = [
+            'id',
+            'created_at',
+            'status',
+            'subject',
+            'from_email',
+            'recipient_list',
+            'recipient_count',
+            'template_name',
+        ]
+
+    def get_recipient_count(self, obj):
+        return len(obj.recipient_list or [])
+
+
+class DevEmailDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DevEmail
         fields = '__all__'
 
 

@@ -15,6 +15,7 @@ import uuid
 from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
 from vaults.models import Vault
 from users.models import Wallet
+from admin_api.models import PlatformSettings
 from .serializers import (
     MetalSerializer, ProductSerializer, PortfolioItemSerializer,
     TransactionSerializer, BuyMetalSerializer, SellMetalSerializer, ConvertMetalSerializer,
@@ -47,6 +48,15 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Product.objects.filter(is_active=True)
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
+
+
+class PlatformSettingsPublicView(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['get'])
+    def retrieve(self, request):
+        obj = PlatformSettings.get_solo()
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled})
 
 
 class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):
@@ -120,6 +130,13 @@ class TradingViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def buy(self, request):
         """Buy precious metals"""
+        settings_obj = PlatformSettings.get_solo()
+        if not settings_obj.metals_buying_enabled:
+            return Response(
+                {'error': 'Purchasing is temporarily unavailable. Please contact an administrator.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
         serializer = BuyMetalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         

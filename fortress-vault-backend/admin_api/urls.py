@@ -8,8 +8,9 @@ from .views import (
     KYCManagementViewSet, AdminUserViewSet, AdminTransactionViewSet,
     AdminShipmentViewSet, DeliveryManagementViewSet, AdminDashboardViewSet, AdminProductViewSet,
     DashboardMetricsView, DashboardAlertsView, DashboardRecentActionsView,
-    VaultInventoryView, TransactionVolumeView, MetalPricesView, AuditLogViewSet
+    VaultInventoryView, TransactionVolumeView, MetalPricesView, AuditLogViewSet, DevEmailViewSet
 )
+from .views import PlatformSettingsView
 
 router = DefaultRouter()
 router.register(r'users', AdminUserViewSet, basename='admin-user')
@@ -17,6 +18,7 @@ router.register(r'transactions', AdminTransactionViewSet, basename='admin-transa
 router.register(r'shipments', AdminShipmentViewSet, basename='admin-shipment')
 router.register(r'deliveries', DeliveryManagementViewSet, basename='admin-delivery')
 router.register(r'audit', AuditLogViewSet, basename='admin-audit')
+router.register(r'dev-emails', DevEmailViewSet, basename='admin-dev-email')
 
 urlpatterns = [
     # KYC Management Endpoints
@@ -36,6 +38,8 @@ urlpatterns = [
     path('dashboard/vault-inventory/', VaultInventoryView.as_view({'get': 'inventory'}), name='admin-dashboard-vault-inventory'),
     path('dashboard/metal-prices/', MetalPricesView.as_view({'get': 'prices'}), name='admin-dashboard-metal-prices'),
     path('dashboard/transaction-volume/', TransactionVolumeView.as_view({'get': 'volume'}), name='admin-dashboard-transaction-volume'),
+
+    path('platform/settings/', PlatformSettingsView.as_view({'get': 'retrieve', 'post': 'update'}), name='admin-platform-settings'),
     
     # Legacy dashboard endpoint
     path('dashboard/stats/', AdminDashboardViewSet.as_view({'get': 'stats'}), name='admin-dashboard-stats'),

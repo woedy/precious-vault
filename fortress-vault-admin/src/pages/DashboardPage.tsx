@@ -2,10 +2,13 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useDashboard } from '@/hooks/useDashboard';
+import api from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import MetricCard from '@/components/MetricCard';
 import CardSkeleton from '@/components/CardSkeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { 
   Users, 
   UserCheck, 
@@ -21,6 +24,26 @@ const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { metrics, recentActions, alerts } = useDashboard();
+  const queryClient = useQueryClient();
+
+  const platformSettings = useQuery<{ metals_buying_enabled: boolean }>({
+    queryKey: ['admin', 'platform', 'settings'],
+    queryFn: async () => {
+      const res = await api.get('/platform/settings/');
+      return res.data;
+    },
+    staleTime: 15000,
+  });
+
+  const updatePlatformSettings = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await api.post('/platform/settings/', { metals_buying_enabled: enabled });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'platform', 'settings'] });
+    },
+  });
 
   // Format currency
   const formatCurrency = (value: number) => {
@@ -66,6 +89,27 @@ const DashboardPage: React.FC = () => {
           Welcome back, {user?.first_name || user?.email}
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Platform Controls</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium">Enable metal purchasing</div>
+              <div className="text-sm text-muted-foreground">
+                Disable to block all client buy operations.
+              </div>
+            </div>
+            <Switch
+              checked={platformSettings.data?.metals_buying_enabled ?? true}
+              onCheckedChange={(checked: boolean) => updatePlatformSettings.mutate(checked)}
+              disabled={platformSettings.isLoading || updatePlatformSettings.isPending}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">

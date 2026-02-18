@@ -61,3 +61,45 @@ class TransactionNote(models.Model):
     
     def __str__(self):
         return f"Note on {self.transaction.id} by {self.admin_user.email}"
+
+
+class DevEmail(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subject = models.CharField(max_length=255)
+    from_email = models.CharField(max_length=255, blank=True, default='')
+    recipient_list = models.JSONField(default=list)
+    text_content = models.TextField(blank=True, default='')
+    html_content = models.TextField(blank=True, default='')
+    template_name = models.CharField(max_length=255, blank=True, default='')
+    context = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, default='sent')
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'dev_emails'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        recipients = ','.join(self.recipient_list or [])
+        return f"{self.subject} -> {recipients}"
+
+
+class PlatformSettings(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    metals_buying_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'platform_settings'
+
+    @classmethod
+    def get_solo(cls):
+        obj = cls.objects.first()
+        if obj is None:
+            obj = cls.objects.create()
+        return obj

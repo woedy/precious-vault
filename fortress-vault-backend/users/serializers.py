@@ -31,6 +31,7 @@ class UserSerializer(serializers.ModelSerializer):
     
     addresses = AddressSerializer(many=True, read_only=True)
     wallet = WalletSerializer(read_only=True)
+    preferred_vault = serializers.PrimaryKeyRelatedField(read_only=True)
     
     class Meta:
         model = User

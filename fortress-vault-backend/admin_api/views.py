@@ -14,13 +14,14 @@ from datetime import datetime, timedelta
 
 from users.models import User, Wallet
 from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
-from .models import TransactionNote
+from .models import AdminAction, TransactionNote, DevEmail, PlatformSettings
 from .serializers import (
-    AdminUserListSerializer, AdminUserDetailSerializer,
-    AdminKYCSerializer, AdminTransactionSerializer, TransactionNoteSerializer,
-    AdminShipmentSerializer, ShipmentEventSerializer,
-    AdminDeliverySerializer, DeliveryItemSerializer, DeliveryHistorySerializer,
-    AdminMetalSerializer, AdminProductSerializer
+    AdminKYCSerializer, AdminUserListSerializer, AdminUserDetailSerializer,
+    AdminTransactionSerializer, AdminDeliverySerializer,
+    TransactionNoteSerializer, AdminActionSerializer,
+    DevEmailListSerializer, DevEmailDetailSerializer,
+    AdminProductSerializer, AdminMetalSerializer,
+    AdminShipmentSerializer, ShipmentEventSerializer, DeliveryHistorySerializer
 )
 from .permissions import IsAdminUser
 from .pagination import AdminPagination
@@ -34,6 +35,7 @@ class KYCManagementViewSet(viewsets.ViewSet):
     """KYC management endpoints"""
     
     permission_classes = [IsAdminUser]
+
     pagination_class = AdminPagination
     
     @action(detail=False, methods=['get'])
@@ -42,78 +44,6 @@ class KYCManagementViewSet(viewsets.ViewSet):
         queryset = User.objects.filter(
             kyc_status=User.KYCStatus.PENDING
         ).select_related('wallet').prefetch_related('addresses')
-        
-        queryset = queryset.order_by('-created_at')
-        
-        # Use pagination
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(queryset, request)
-        
-        if page is not None:
-            serializer = AdminKYCSerializer(page, many=True, context={'request': request})
-            return paginator.get_paginated_response(serializer.data)
-        
-        serializer = AdminKYCSerializer(queryset, many=True, context={'request': request})
-        return Response(serializer.data)
-    
-    def retrieve(self, request, pk=None):
-        """Get single user KYC details with documents"""
-        user = get_object_or_404(User, pk=pk)
-        serializer = AdminKYCSerializer(user, context={'request': request})
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['get'])
-    def history(self, request, pk=None):
-        """Get user's KYC submission history"""
-        user = get_object_or_404(User, pk=pk)
-        
-        # Get all admin actions related to this user's KYC
-        from .models import AdminAction
-        kyc_actions = AdminAction.objects.filter(
-            target_type='user',
-            target_id=user.id,
-            action_type__in=['approve_kyc', 'reject_kyc']
-        ).select_related('admin_user').order_by('-timestamp')
-        
-        history = []
-        for action in kyc_actions:
-            history.append({
-                'action_type': action.action_type,
-                'admin_user': action.admin_user.email,
-                'timestamp': action.timestamp,
-                'details': action.details
-            })
-        
-        # Add current status
-        current_status = {
-            'kyc_status': user.kyc_status,
-            'created_at': user.created_at,
-            'updated_at': user.updated_at
-        }
-        
-        return Response({
-            'user_id': str(user.id),
-            'user_email': user.email,
-            'current_status': current_status,
-            'history': history
-        })
-    
-    def list(self, request):
-        """List KYC submissions with filters"""
-        kyc_status = request.query_params.get('status', 'pending')
-        search = request.query_params.get('search', '')
-        
-        queryset = User.objects.select_related('wallet').prefetch_related('addresses')
-        
-        if kyc_status and kyc_status != 'all':
-            queryset = queryset.filter(kyc_status=kyc_status)
-        
-        if search:
-            queryset = queryset.filter(
-                Q(email__icontains=search) |
-                Q(first_name__icontains=search) |
-                Q(last_name__icontains=search)
-            )
         
         queryset = queryset.order_by('-created_at')
         
@@ -249,8 +179,7 @@ class KYCManagementViewSet(viewsets.ViewSet):
                     # Send email
                     try:
                         send_kyc_decision_email(user, approved=True)
-                    except Exception as email_error:
-                        # Don't fail the operation if email fails
+                    except Exception:
                         pass
                     
                     successful.append({
@@ -307,14 +236,6 @@ class KYCManagementViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Validate reason is provided
-        if not reason or not reason.strip():
-            return Response(
-                {'error': 'Rejection reason is required for bulk rejection'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Process bulk rejection
         successful = []
         failed = []
         
@@ -347,8 +268,7 @@ class KYCManagementViewSet(viewsets.ViewSet):
                     # Send email
                     try:
                         send_kyc_decision_email(user, approved=False, reason=reason)
-                    except Exception as email_error:
-                        # Don't fail the operation if email fails
+                    except Exception:
                         pass
                     
                     successful.append({
@@ -369,7 +289,7 @@ class KYCManagementViewSet(viewsets.ViewSet):
                 })
         
         return Response({
-            'message': f'Bulk rejection completed: {len(successful)} successful, {len(failed)} failed',
+            'message': f'Bulk reject completed: {len(successful)} successful, {len(failed)} failed',
             'summary': {
                 'total_requested': len(user_ids),
                 'successful': len(successful),
@@ -378,6 +298,25 @@ class KYCManagementViewSet(viewsets.ViewSet):
             'successful': successful,
             'failed': failed
         })
+
+
+class PlatformSettingsView(viewsets.ViewSet):
+    permission_classes = [IsAdminUser]
+
+    @action(detail=False, methods=['get'])
+    def retrieve(self, request):
+        obj = PlatformSettings.get_solo()
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled})
+
+    @action(detail=False, methods=['post'])
+    def update(self, request):
+        obj = PlatformSettings.get_solo()
+        enabled = request.data.get('metals_buying_enabled')
+        if not isinstance(enabled, bool):
+            return Response({'error': 'metals_buying_enabled must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+        obj.metals_buying_enabled = enabled
+        obj.save(update_fields=['metals_buying_enabled', 'updated_at'])
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled})
 
 
 class UserManagementViewSet(viewsets.ReadOnlyModelViewSet):
@@ -645,6 +584,50 @@ class UserManagementViewSet(viewsets.ReadOnlyModelViewSet):
 
 # Keep the old name as an alias for backward compatibility
 AdminUserViewSet = UserManagementViewSet
+
+
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Audit log endpoints"""
+    
+    permission_classes = [IsAdminUser]
+    queryset = AdminAction.objects.all()
+    serializer_class = AdminActionSerializer
+    pagination_class = AdminPagination
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['admin_user__email', 'action_type', 'target_type']
+    ordering_fields = ['timestamp', 'action_type']
+    ordering = ['-timestamp']
+    
+    def get_queryset(self):
+        return AdminAction.objects.select_related('admin_user')
+
+
+class DevEmailViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAdminUser]
+    pagination_class = AdminPagination
+    queryset = DevEmail.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return DevEmailDetailSerializer
+        return DevEmailListSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        q = self.request.query_params.get('q')
+        if q:
+            queryset = queryset.filter(
+                Q(subject__icontains=q) |
+                Q(from_email__icontains=q) |
+                Q(recipient_list__icontains=q)
+            )
+
+        return queryset.order_by('-created_at')
 
 
 class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):

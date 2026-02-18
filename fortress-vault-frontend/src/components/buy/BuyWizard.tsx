@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTrading } from '@/hooks/useTrading';
 import { useMetals } from '@/hooks/useDashboardData';
+import { useVaults } from '@/hooks/useVaults';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,13 @@ interface OrderState {
     vaultLocationId?: string;
 }
 
+interface PaginatedResponse<T> {
+    count: number;
+    next: string | null;
+    previous: string | null;
+    results: T[];
+}
+
 interface Product {
     id: string;
     name: string;
@@ -30,14 +38,6 @@ interface Product {
     image_url: string | null;
     manufacturer: string;
     purity: string;
-}
-
-interface Vault {
-    id: string;
-    location_name: string;
-    city: string;
-    country: string;
-    storage_fee_percent: number;
 }
 
 export default function BuyWizard() {
@@ -50,19 +50,25 @@ export default function BuyWizard() {
     const { data: products, isLoading: isLoadingProducts } = useQuery({
         queryKey: ['products'],
         queryFn: async () => {
-            const res = await api.get<Product[]>('/trading/products/');
-            return res.data;
+            const res = await api.get<Product[] | PaginatedResponse<Product>>('/trading/products/');
+            const data = res.data;
+            if (Array.isArray(data)) {
+                return data;
+            }
+            return data.results;
         }
     });
 
-    // Fetch Vaults
-    const { data: vaults } = useQuery({
-        queryKey: ['vaults'],
+    const { data: platformSettings } = useQuery<{ metals_buying_enabled: boolean }>({
+        queryKey: ['platform', 'settings'],
         queryFn: async () => {
-            const res = await api.get<Vault[]>('/vaults/');
+            const res = await api.get('/trading/platform/settings/');
             return res.data;
-        }
+        },
+        staleTime: 15000,
     });
+
+    const { data: vaults } = useVaults();
 
     const [step, setStep] = useState<BuyingStep>('product');
     const [order, setOrder] = useState<OrderState>({
@@ -114,6 +120,10 @@ export default function BuyWizard() {
 
     const handleConfirm = async () => {
         try {
+            if (platformSettings && platformSettings.metals_buying_enabled === false) {
+                setError('Purchasing is temporarily unavailable. Please contact an administrator.');
+                return;
+            }
             await buy.mutateAsync({
                 product_id: order.productId,
                 quantity: order.quantity,

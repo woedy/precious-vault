@@ -11,6 +11,13 @@ export interface Metal {
     price_change_percentage_24h: number;
 }
 
+interface PaginatedResponse<T> {
+    count: number;
+    next: string | null;
+    previous: string | null;
+    results: T[];
+}
+
 export interface PortfolioItem {
     id: string;
     metal: Metal;
@@ -78,8 +85,12 @@ export const useMetals = () => {
     return useQuery({
         queryKey: ['metals'],
         queryFn: async () => {
-            const response = await api.get<Metal[]>('/trading/metals/');
-            return response.data;
+            const response = await api.get<Metal[] | PaginatedResponse<Metal>>('/trading/metals/');
+            const data = response.data;
+            if (Array.isArray(data)) {
+                return data;
+            }
+            return data.results;
         },
         refetchInterval: 30000, // Refresh every 30s
     });

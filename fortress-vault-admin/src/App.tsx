@@ -12,6 +12,8 @@ import TransactionManagementPage from '@/pages/TransactionManagementPage';
 import UserManagementPage from '@/pages/UserManagementPage';
 import DeliveryManagementPage from '@/pages/DeliveryManagementPage';
 import AuditLogPage from '@/pages/AuditLogPage';
+import DevEmailInboxPage from '@/pages/DevEmailInboxPage';
+import DevEmailDetailPage from '@/pages/DevEmailDetailPage';
 
 // Create a client for TanStack Query
 const queryClient = new QueryClient({
@@ -90,6 +92,26 @@ function App() {
                   <ProtectedRoute>
                     <AdminLayout>
                       <AuditLogPage />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dev-emails"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <DevEmailInboxPage />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dev-emails/:id"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <DevEmailDetailPage />
                     </AdminLayout>
                   </ProtectedRoute>
                 }

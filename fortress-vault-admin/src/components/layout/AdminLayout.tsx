@@ -9,6 +9,7 @@ import {
   Users,
   Package,
   FileText,
+  Mail,
   LogOut,
   Menu,
   X,
@@ -31,6 +32,7 @@ const navItems: NavItem[] = [
   { name: 'Users', path: '/users', icon: Users },
   { name: 'Deliveries', path: '/deliveries', icon: Package },
   { name: 'Audit Log', path: '/audit-log', icon: FileText },
+  { name: 'Dev Emails', path: '/dev-emails', icon: Mail },
 ];
 
 const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
