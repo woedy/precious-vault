@@ -35,6 +35,9 @@ export const useRealTimeData = () => {
                     const data = JSON.parse(event.data);
                     if (data.type === 'price_update') {
                         queryClient.setQueryData(['metals'], data.prices);
+                        if (data.metal_prices) {
+                            queryClient.setQueryData(['metal-prices'], data.metal_prices);
+                        }
                     }
                 } catch (e) {
                     console.error('Error parsing price update', e);

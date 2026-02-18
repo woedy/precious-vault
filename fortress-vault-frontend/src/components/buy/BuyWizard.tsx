@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CheckCircle2, Truck, Building2, ShieldCheck, Info, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useMetalPrices } from '@/hooks/useMetalPrices';
 
 type BuyingStep = 'product' | 'config' | 'delivery' | 'review' | 'success';
 
@@ -45,6 +46,7 @@ export default function BuyWizard() {
     const { user } = useAuth();
     const { buy } = useTrading();
     const { data: metals } = useMetals();
+    const { data: metalPrices } = useMetalPrices();
 
     // Fetch Products
     const { data: products, isLoading: isLoadingProducts } = useQuery({
@@ -86,7 +88,8 @@ export default function BuyWizard() {
 
     // Calculate live pricing
     const selectedProduct = Array.isArray(products) ? products.find(p => p.id === order.productId) : undefined;
-    const spotPrice = Number(selectedProduct?.metal.current_price || 0);
+    const liveSpotPrice = metalPrices?.metals?.find((m) => m.id === selectedProduct?.metal.id)?.price_usd_per_oz;
+    const spotPrice = Number(liveSpotPrice ?? selectedProduct?.metal.current_price ?? 0);
 
     const weight = Number(selectedProduct?.weight_oz || 0);
     const premium = Number(selectedProduct?.premium_per_oz || 0);

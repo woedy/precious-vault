@@ -21,7 +21,7 @@ app.autodiscover_tasks()
 app.conf.beat_schedule = {
     'update-metal-prices': {
         'task': 'trading.tasks.update_metal_prices',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 3600.0,  # Every 60 minutes
     },
     'calculate-portfolio-values': {
         'task': 'trading.tasks.calculate_portfolio_values',

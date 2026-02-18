@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { useTrading } from '@/hooks/useTrading';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useMetalPrices } from '@/hooks/useMetalPrices';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, CheckCircle2, Banknote, Loader2 } from 'lucide-react';
@@ -22,12 +23,14 @@ export default function ConvertPage() {
 
   const { data: dashboard, isLoading } = useDashboardData();
   const { convert } = useTrading();
+  const { data: metalPrices } = useMetalPrices();
 
   const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
   const selected = holdings.find((h) => h.id === selectedHoldingId);
   const amountValue = amount ? parseFloat(amount) : 0;
   // Use current_price from metal (cast to number for string safety)
-  const spotPrice = Number(selected?.metal.current_price || 0);
+  const liveSpotPrice = metalPrices?.metals?.find((m) => m.id === selected?.metal.id)?.price_usd_per_oz;
+  const spotPrice = Number(liveSpotPrice ?? selected?.metal.current_price ?? 0);
   const cashValue = selected ? amountValue * spotPrice * 0.98 : 0; // 2% conversion fee
 
   const handleConvert = () => {

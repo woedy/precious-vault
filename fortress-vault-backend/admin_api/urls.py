@@ -37,6 +37,8 @@ urlpatterns = [
     path('dashboard/alerts/', DashboardAlertsView.as_view({'get': 'alerts'}), name='admin-dashboard-alerts'),
     path('dashboard/vault-inventory/', VaultInventoryView.as_view({'get': 'inventory'}), name='admin-dashboard-vault-inventory'),
     path('dashboard/metal-prices/', MetalPricesView.as_view({'get': 'prices'}), name='admin-dashboard-metal-prices'),
+    path('dashboard/metal-prices/trigger-update/', MetalPricesView.as_view({'post': 'trigger_update'}), name='admin-dashboard-metal-prices-trigger-update'),
+    path('dashboard/metal-prices/update-status/', MetalPricesView.as_view({'get': 'update_status'}), name='admin-dashboard-metal-prices-update-status'),
     path('dashboard/transaction-volume/', TransactionVolumeView.as_view({'get': 'volume'}), name='admin-dashboard-transaction-volume'),
 
     path('platform/settings/', PlatformSettingsView.as_view({'get': 'retrieve', 'post': 'update'}), name='admin-platform-settings'),

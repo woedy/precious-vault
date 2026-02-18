@@ -18,6 +18,7 @@ import { chartData } from '@/data/mockData';
 
 import { useRealTimeData } from '@/hooks/useRealTimeData';
 import { useAuth } from '@/context/AuthContext';
+import { useMetalPrices } from '@/hooks/useMetalPrices';
 
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -25,8 +26,9 @@ export default function DashboardPage() {
   const { data: dashboard, isLoading: isDashboardLoading } = useDashboardData();
   const { data: transactions, isLoading: isTransactionsLoading } = useTransactions();
   const { data: metals, isLoading: isMetalsLoading } = useMetals();
+  const { data: metalPrices, isLoading: isMetalPricesLoading } = useMetalPrices();
 
-  if (isDashboardLoading || isTransactionsLoading || isMetalsLoading || isAuthLoading) {
+  if (isDashboardLoading || isTransactionsLoading || isMetalsLoading || isAuthLoading || isMetalPricesLoading) {
     return (
       <Layout>
         <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
@@ -35,6 +37,10 @@ export default function DashboardPage() {
       </Layout>
     );
   }
+
+  const latestPriceBySymbol = new Map<string, { price_usd_per_oz: number; price_gbp_per_oz: number | null; last_updated: string }>(
+    (metalPrices?.metals ?? []).map((m) => [m.symbol, m])
+  );
 
   // Calculate holdings values
   const goldHolding = Array.isArray(dashboard?.holdings) ? dashboard?.holdings.find(h => h.metal.symbol === 'Au') : undefined;
@@ -176,18 +182,23 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {Array.isArray(metals) && metals.slice(0, 4).map((metal) => (
               <Link key={metal.id} to="/buy">
-                {/* Map API metal data to MetalCard props */}
-                <MetalCard
-                  id={metal.id}
-                  name={metal.name}
-                  symbol={metal.symbol}
-                  price={metal.current_price}
-                  change={metal.price_change_24h}
-                  unit="oz"
-                  color={metal.symbol === 'Au' ? "from-yellow-400 to-amber-500" : "from-slate-300 to-slate-400"}
-                  icon={metal.symbol === 'Au' ? "🥇" : (metal.symbol === 'Ag' ? "🥈" : "⚪")}
-                  showActions={false}
-                />
+                {(() => {
+                  const p = latestPriceBySymbol.get(metal.symbol);
+                  const displayUsd = p?.price_usd_per_oz ?? metal.current_price;
+                  return (
+                    <MetalCard
+                      id={metal.id}
+                      name={metal.name}
+                      symbol={metal.symbol}
+                      price={displayUsd}
+                      change={metal.price_change_24h}
+                      unit="oz"
+                      color={metal.symbol === 'Au' ? "from-yellow-400 to-amber-500" : "from-slate-300 to-slate-400"}
+                      icon={metal.symbol === 'Au' ? "🥇" : (metal.symbol === 'Ag' ? "🥈" : "⚪")}
+                      showActions={false}
+                    />
+                  );
+                })()}
               </Link>
             ))}
             <Link to="/deposit">

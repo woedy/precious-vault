@@ -12,6 +12,8 @@ from decimal import Decimal, InvalidOperation
 from datetime import date, timedelta
 import uuid
 
+from django.core.cache import cache
+
 from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
 from vaults.models import Vault
 from users.models import Wallet
@@ -57,6 +59,45 @@ class PlatformSettingsPublicView(viewsets.ViewSet):
     def retrieve(self, request):
         obj = PlatformSettings.get_solo()
         return Response({'metals_buying_enabled': obj.metals_buying_enabled})
+
+
+class MetalPricesPublicView(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['get'])
+    def retrieve(self, request):
+        fx_rate = cache.get('fx:usd_to_gbp')
+        fx_rate_decimal = None
+        if fx_rate is not None:
+            try:
+                fx_rate_decimal = Decimal(str(fx_rate))
+            except Exception:
+                fx_rate_decimal = None
+
+        metals = Metal.objects.all().order_by('symbol')
+        items = []
+        for metal in metals:
+            usd = metal.current_price
+            gbp = None
+            if fx_rate_decimal is not None:
+                gbp = (usd * fx_rate_decimal)
+
+            items.append({
+                'id': str(metal.id),
+                'name': metal.name,
+                'symbol': metal.symbol,
+                'price_usd_per_oz': float(usd),
+                'price_gbp_per_oz': float(gbp) if gbp is not None else None,
+                'last_updated': metal.last_updated,
+            })
+
+        return Response({
+            'fx': {
+                'usd_to_gbp': float(fx_rate_decimal) if fx_rate_decimal is not None else None,
+            },
+            'metals': items,
+            'count': len(items),
+        })
 
 
 class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):

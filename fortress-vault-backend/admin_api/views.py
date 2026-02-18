@@ -11,6 +11,7 @@ from django.db.models import Count, Sum, Q
 from django.db import transaction as db_transaction
 from decimal import Decimal
 from datetime import datetime, timedelta
+from celery.result import AsyncResult
 
 from users.models import User, Wallet
 from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
@@ -1549,6 +1550,39 @@ class MetalPricesView(viewsets.ViewSet):
             'metals': prices_data,
             'count': len(prices_data)
         })
+
+    @action(detail=False, methods=['post'])
+    def trigger_update(self, request):
+        """Trigger a background metal price update task"""
+        from trading.tasks import update_metal_prices
+
+        task = update_metal_prices.delay()
+        return Response(
+            {
+                'task_id': task.id,
+                'status': task.status,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(detail=False, methods=['get'])
+    def update_status(self, request):
+        """Get status for a previously triggered metal price update task"""
+        task_id = request.query_params.get('task_id', '').strip()
+        if not task_id:
+            return Response({'error': 'task_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        res = AsyncResult(task_id)
+        payload = {
+            'task_id': task_id,
+            'status': res.status,
+        }
+        if res.successful():
+            payload['result'] = res.result
+        elif res.failed():
+            payload['error'] = str(res.result)
+
+        return Response(payload)
 
 
 

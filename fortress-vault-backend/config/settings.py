@@ -17,6 +17,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Read .env file
 environ.Env.read_env(BASE_DIR / '.env')
 
+# External pricing services (optional)
+METAL_PRICE_API_KEY = env('METAL_PRICE_API_KEY', default='')
+FX_API_KEY = env('FX_API_KEY', default='')
+FX_BASE_URL = env('FX_BASE_URL', default='https://api.exchangerate.host')
+
 # Security
 SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
@@ -162,7 +167,19 @@ SIMPLE_JWT = {
 }
 
 # CORS Settings
-CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS')
+CORS_ALLOWED_ORIGINS = env.list(
+    'CORS_ALLOWED_ORIGINS',
+    default=[
+        'http://localhost',
+        'http://127.0.0.1',
+        'http://localhost:80',
+        'http://127.0.0.1:80',
+        'http://localhost:3001',
+        'http://127.0.0.1:3001',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+    ],
+)
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF Settings

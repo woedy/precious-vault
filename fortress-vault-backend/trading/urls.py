@@ -4,7 +4,7 @@ Trading app URLs
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import MetalViewSet, ProductViewSet, PortfolioViewSet, TransactionViewSet, TradingViewSet, ShipmentViewSet, PlatformSettingsPublicView
+from .views import MetalViewSet, ProductViewSet, PortfolioViewSet, TransactionViewSet, TradingViewSet, ShipmentViewSet, PlatformSettingsPublicView, MetalPricesPublicView
 
 router = DefaultRouter()
 router.register(r'metals', MetalViewSet, basename='metal')
@@ -16,5 +16,6 @@ router.register(r'shipments', ShipmentViewSet, basename='shipment')
 
 urlpatterns = [
     path('platform/settings/', PlatformSettingsPublicView.as_view({'get': 'retrieve'}), name='platform-settings-public'),
+    path('metal-prices/', MetalPricesPublicView.as_view({'get': 'retrieve'}), name='metal-prices-public'),
     path('', include(router.urls)),
 ]

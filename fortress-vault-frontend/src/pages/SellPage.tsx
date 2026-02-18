@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { useTrading } from '@/hooks/useTrading';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useMetalPrices } from '@/hooks/useMetalPrices';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,16 +14,20 @@ export default function SellPage() {
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select');
+  const [soldMeta, setSoldMeta] = useState<{ metalName: string; metalSymbol: string; amountOz: string } | null>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: dashboard, isLoading } = useDashboardData();
   const { sell } = useTrading();
+  const { data: metalPrices } = useMetalPrices();
 
   // Use portfolio_items so we can sell specific items (with IDs)
   // We filter to only show items that can be sold (e.g. vaulted)
   const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
   const selected = holdings.find((h) => h.id === selectedHoldingId);
-  const spotPrice = Number(selected?.metal.current_price || 0);
+  const liveSpotPrice = metalPrices?.metals?.find((m) => m.id === selected?.metal.id)?.price_usd_per_oz;
+  const spotPrice = Number(liveSpotPrice ?? selected?.metal.current_price ?? 0);
   const selectedWeight = Number(selected?.weight_oz || 0);
 
   const handleSell = () => {
@@ -33,10 +39,16 @@ export default function SellPage() {
   const handleConfirm = async () => {
     if (!selected) return;
     try {
+      setSoldMeta({
+        metalName: selected.metal.name,
+        metalSymbol: selected.metal.symbol,
+        amountOz: amount,
+      });
       await sell.mutateAsync({
         portfolio_item_id: selected.id,
         amount_oz: parseFloat(amount)
       });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setStep('success');
     } catch (error) {
       console.error("Sale failed", error);
@@ -143,7 +155,7 @@ export default function SellPage() {
                     <div className="bg-muted p-4 rounded-lg space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Price per oz</span>
-                        <span className="text-foreground">${selected.metal.current_price.toFixed(2)}</span>
+                        <span className="text-foreground">${spotPrice.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Quantity</span>
@@ -235,7 +247,7 @@ export default function SellPage() {
           </div>
         )}
 
-        {step === 'success' && selected && (
+        {step === 'success' && soldMeta && (
           <div className="max-w-md mx-auto text-center">
             <div className="card-premium">
               <div className="h-16 w-16 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-4">
@@ -244,7 +256,7 @@ export default function SellPage() {
 
               <h2 className="text-2xl font-bold text-foreground mb-2">Sale Complete!</h2>
               <p className="text-muted-foreground mb-6">
-                You've successfully sold {amount} oz of {selected.metal.name}.
+                You've successfully sold {soldMeta.amountOz} oz of {soldMeta.metalName}.
               </p>
 
               <div className="bg-muted p-4 rounded-lg mb-6">

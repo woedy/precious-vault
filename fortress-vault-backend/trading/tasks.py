@@ -3,10 +3,13 @@ Celery tasks for trading app
 """
 
 from celery import shared_task
-from django.utils import timezone
+from django.conf import settings
 from decimal import Decimal
 import random
 import logging
+import requests
+
+from django.core.cache import cache
 
 from .models import Metal, PortfolioItem
 
@@ -15,8 +18,23 @@ logger = logging.getLogger(__name__)
 
 @shared_task
 def update_metal_prices():
-    """Update metal prices (simulated for MVP)"""
+    """Update metal prices.
+
+    If METAL_PRICE_API_KEY is configured, fetch real spot prices.
+    Otherwise fall back to simulated price changes.
+    """
     try:
+        fx_rate_usd_to_gbp = _fetch_usd_to_gbp_rate()
+        if fx_rate_usd_to_gbp is not None:
+            cache.set('fx:usd_to_gbp', str(fx_rate_usd_to_gbp), timeout=60 * 60 * 6)
+
+        if getattr(settings, 'METAL_PRICE_API_KEY', ''):
+            updated = _update_metal_prices_from_api()
+            if updated:
+                from .consumers import broadcast_price_update
+                broadcast_price_update()
+                return f"Updated {updated} metal prices"
+
         metals = Metal.objects.all()
         
         for metal in metals:
@@ -41,6 +59,110 @@ def update_metal_prices():
     except Exception as e:
         logger.error(f"Error updating metal prices: {e}")
         raise
+
+
+def _fetch_usd_to_gbp_rate():
+    try:
+        base_url = getattr(settings, 'FX_BASE_URL', 'https://api.exchangerate.host').rstrip('/')
+        url = f"{base_url}/latest"
+        params = {
+            'base': 'USD',
+            'symbols': 'GBP',
+        }
+
+        api_key = getattr(settings, 'FX_API_KEY', '')
+        if api_key:
+            params['access_key'] = api_key
+
+        res = requests.get(url, params=params, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+
+        rate = None
+        if isinstance(data, dict):
+            rates = data.get('rates')
+            if isinstance(rates, dict):
+                rate = rates.get('GBP')
+
+        if rate is None:
+            return None
+
+        return Decimal(str(rate))
+    except Exception as e:
+        logger.warning(f"Failed to fetch FX USD->GBP rate: {e}")
+        return None
+
+
+def _update_metal_prices_from_api():
+    """Fetch and update metals using a live pricing API."""
+    api_key = getattr(settings, 'METAL_PRICE_API_KEY', '')
+    if not api_key:
+        return 0
+
+    # Default to Metals-API compatible format.
+    # This can be changed later without changing call sites.
+    url = 'https://metals-api.com/api/latest'
+    params = {
+        'access_key': api_key,
+        'base': 'USD',
+        'symbols': 'XAU,XAG,XPT,XPD',
+    }
+
+    res = requests.get(url, params=params, timeout=20)
+    res.raise_for_status()
+    data = res.json()
+
+    if not isinstance(data, dict) or not data.get('success', True):
+        raise ValueError(f"Metal price API returned error: {data}")
+
+    rates = data.get('rates')
+    if not isinstance(rates, dict):
+        raise ValueError('Metal price API missing rates')
+
+    # Metals-API returns "metals per 1 base currency".
+    # Example: base=USD, XAU=0.000498... meaning 1 USD == 0.000498 oz gold.
+    # We want USD per ounce -> invert.
+    symbol_to_price_usd_per_oz = {}
+    for kyc_symbol in ['XAU', 'XAG', 'XPT', 'XPD']:
+        v = rates.get(kyc_symbol)
+        if v is None:
+            continue
+        dec = Decimal(str(v))
+        if dec == 0:
+            continue
+        symbol_to_price_usd_per_oz[kyc_symbol] = (Decimal('1') / dec)
+
+    trading_symbol_map = {
+        'Au': 'XAU',
+        'Ag': 'XAG',
+        'Pt': 'XPT',
+        'Pd': 'XPD',
+    }
+
+    updated = 0
+    for metal in Metal.objects.all():
+        api_symbol = trading_symbol_map.get(metal.symbol)
+        if not api_symbol:
+            continue
+
+        new_price = symbol_to_price_usd_per_oz.get(api_symbol)
+        if new_price is None:
+            continue
+
+        old_price = metal.current_price
+
+        if old_price and old_price != 0:
+            price_change_24h = ((new_price - old_price) / old_price) * 100
+        else:
+            price_change_24h = Decimal('0')
+
+        metal.current_price = new_price
+        metal.price_change_24h = price_change_24h
+        metal.save(update_fields=['current_price', 'price_change_24h', 'last_updated'])
+        updated += 1
+        logger.info(f"Updated {metal.symbol} price to ${new_price}")
+
+    return updated
 
 
 @shared_task
