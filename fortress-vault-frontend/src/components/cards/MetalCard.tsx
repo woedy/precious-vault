@@ -11,6 +11,7 @@ interface MetalCardProps {
   unit: string;
   color?: string;
   icon: string;
+  imageUrl?: string | null;
   onBuy?: () => void;
   onSell?: () => void;
   showActions?: boolean;
@@ -24,6 +25,7 @@ export function MetalCard({
   change,
   unit,
   icon,
+  imageUrl,
   onBuy,
   onSell,
   showActions = true,
@@ -38,7 +40,13 @@ export function MetalCard({
     )}>
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="text-3xl">{icon}</div>
+          <div className="h-12 w-12 rounded-full bg-background border border-border flex items-center justify-center overflow-hidden">
+            {imageUrl ? (
+              <img src={imageUrl} alt={`${name} icon`} className="h-full w-full object-cover" loading="lazy" />
+            ) : (
+              <div className="text-3xl">{icon}</div>
+            )}
+          </div>
           <div>
             <h3 className="font-semibold text-foreground">{name}</h3>
             <span className="text-sm text-muted-foreground">{symbol}</span>
