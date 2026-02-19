@@ -38,7 +38,7 @@ export default function DashboardPage() {
     );
   }
 
-  const latestPriceBySymbol = new Map<string, { price_usd_per_oz: number; price_gbp_per_oz: number | null; last_updated: string }>(
+  const latestPriceBySymbol = new Map<string, { image_url: string | null; price_usd_per_oz: number; price_gbp_per_oz: number | null; last_updated: string }>(
     (metalPrices?.metals ?? []).map((m) => [m.symbol, m])
   );
 
@@ -195,6 +195,7 @@ export default function DashboardPage() {
                       unit="oz"
                       color={metal.symbol === 'Au' ? "from-yellow-400 to-amber-500" : "from-slate-300 to-slate-400"}
                       icon={metal.symbol === 'Au' ? "🥇" : (metal.symbol === 'Ag' ? "🥈" : "⚪")}
+                      imageUrl={p?.image_url ?? metal.image_url ?? null}
                       showActions={false}
                     />
                   );

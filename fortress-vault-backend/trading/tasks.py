@@ -4,7 +4,7 @@ Celery tasks for trading app
 
 from celery import shared_task
 from django.conf import settings
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import random
 import logging
 import requests
@@ -28,7 +28,7 @@ def update_metal_prices():
         if fx_rate_usd_to_gbp is not None:
             cache.set('fx:usd_to_gbp', str(fx_rate_usd_to_gbp), timeout=60 * 60 * 6)
 
-        if getattr(settings, 'METAL_PRICE_API_KEY', ''):
+        if getattr(settings, 'METAL_PRICE_API_KEY', '') or getattr(settings, 'FX_API_KEY', ''):
             updated = _update_metal_prices_from_api()
             if updated:
                 from .consumers import broadcast_price_update
@@ -94,43 +94,16 @@ def _fetch_usd_to_gbp_rate():
 
 
 def _update_metal_prices_from_api():
-    """Fetch and update metals using a live pricing API."""
-    api_key = getattr(settings, 'METAL_PRICE_API_KEY', '')
-    if not api_key:
+    """Fetch and update metals using configured live pricing provider."""
+    provider = getattr(settings, 'METAL_PRICE_API_PROVIDER', 'metalsapi').lower().strip()
+
+    if provider == 'exchangerate_host' or (not getattr(settings, 'METAL_PRICE_API_KEY', '') and getattr(settings, 'FX_API_KEY', '')):
+        prices = _fetch_metal_prices_from_exchangerate_host()
+    else:
+        prices = _fetch_metal_prices_from_metals_api()
+
+    if not prices:
         return 0
-
-    # Default to Metals-API compatible format.
-    # This can be changed later without changing call sites.
-    url = 'https://metals-api.com/api/latest'
-    params = {
-        'access_key': api_key,
-        'base': 'USD',
-        'symbols': 'XAU,XAG,XPT,XPD',
-    }
-
-    res = requests.get(url, params=params, timeout=20)
-    res.raise_for_status()
-    data = res.json()
-
-    if not isinstance(data, dict) or not data.get('success', True):
-        raise ValueError(f"Metal price API returned error: {data}")
-
-    rates = data.get('rates')
-    if not isinstance(rates, dict):
-        raise ValueError('Metal price API missing rates')
-
-    # Metals-API returns "metals per 1 base currency".
-    # Example: base=USD, XAU=0.000498... meaning 1 USD == 0.000498 oz gold.
-    # We want USD per ounce -> invert.
-    symbol_to_price_usd_per_oz = {}
-    for kyc_symbol in ['XAU', 'XAG', 'XPT', 'XPD']:
-        v = rates.get(kyc_symbol)
-        if v is None:
-            continue
-        dec = Decimal(str(v))
-        if dec == 0:
-            continue
-        symbol_to_price_usd_per_oz[kyc_symbol] = (Decimal('1') / dec)
 
     trading_symbol_map = {
         'Au': 'XAU',
@@ -145,7 +118,7 @@ def _update_metal_prices_from_api():
         if not api_symbol:
             continue
 
-        new_price = symbol_to_price_usd_per_oz.get(api_symbol)
+        new_price = prices.get(api_symbol)
         if new_price is None:
             continue
 
@@ -163,6 +136,95 @@ def _update_metal_prices_from_api():
         logger.info(f"Updated {metal.symbol} price to ${new_price}")
 
     return updated
+
+
+def _fetch_metal_prices_from_metals_api():
+    """Fetch USD per oz from metals-api.com style endpoint."""
+    api_key = getattr(settings, 'METAL_PRICE_API_KEY', '')
+    if not api_key:
+        return {}
+
+    base_url = getattr(settings, 'METAL_PRICE_API_URL', 'https://metals-api.com/api/latest').strip() or 'https://metals-api.com/api/latest'
+    params = {
+        'access_key': api_key,
+        'base': 'USD',
+        'symbols': 'XAU,XAG,XPT,XPD',
+    }
+
+    res = requests.get(base_url, params=params, timeout=20)
+    res.raise_for_status()
+    data = res.json()
+
+    if not isinstance(data, dict) or not data.get('success', True):
+        raise ValueError(f"Metal price API returned error: {data}")
+
+    rates = data.get('rates')
+    if not isinstance(rates, dict):
+        raise ValueError('Metal price API missing rates')
+
+    symbol_to_price_usd_per_oz = {}
+    for symbol in ['XAU', 'XAG', 'XPT', 'XPD']:
+        v = rates.get(symbol)
+        if v is None:
+            continue
+        try:
+            dec = Decimal(str(v))
+        except (InvalidOperation, TypeError):
+            continue
+        if dec == 0:
+            continue
+        symbol_to_price_usd_per_oz[symbol] = (Decimal('1') / dec)
+
+    return symbol_to_price_usd_per_oz
+
+
+def _fetch_metal_prices_from_exchangerate_host():
+    """Fetch USD per oz from exchangerate.host /live format.
+
+    Expected response contains quotes such as:
+      USDXAU, USDXAG, USDXPT, USDXPD
+    where each value is ounces per USD, so we invert to get USD per ounce.
+    """
+    api_key = getattr(settings, 'FX_API_KEY', '')
+    if not api_key:
+        return {}
+
+    base_url = getattr(settings, 'FX_BASE_URL', 'https://api.exchangerate.host').rstrip('/')
+    url = f"{base_url}/live"
+    params = {
+        'source': 'USD',
+        'currencies': 'XAU,XAG,XPT,XPD',
+        'access_key': api_key,
+    }
+
+    res = requests.get(url, params=params, timeout=20)
+    res.raise_for_status()
+    data = res.json()
+
+    if not isinstance(data, dict):
+        raise ValueError('FX API returned non-JSON response')
+
+    if data.get('success') is False:
+        raise ValueError(f"FX API returned error: {data}")
+
+    quotes = data.get('quotes') or {}
+    if not isinstance(quotes, dict):
+        raise ValueError('FX API missing quotes object')
+
+    symbol_to_price_usd_per_oz = {}
+    for symbol in ['XAU', 'XAG', 'XPT', 'XPD']:
+        raw = quotes.get(f'USD{symbol}')
+        if raw is None:
+            continue
+        try:
+            dec = Decimal(str(raw))
+        except (InvalidOperation, TypeError):
+            continue
+        if dec == 0:
+            continue
+        symbol_to_price_usd_per_oz[symbol] = (Decimal('1') / dec)
+
+    return symbol_to_price_usd_per_oz
 
 
 @shared_task
