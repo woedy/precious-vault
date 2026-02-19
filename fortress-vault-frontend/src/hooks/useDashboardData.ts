@@ -9,6 +9,7 @@ export interface Metal {
     current_price: number;
     price_change_24h: number;
     price_change_percentage_24h: number;
+    image_url?: string | null;
 }
 
 interface PaginatedResponse<T> {
