@@ -5,7 +5,7 @@ Trading serializers
 from rest_framework import serializers
 from django.conf import settings
 from urllib.parse import urlparse
-from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
+from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent, ShipmentWorkflowStage
 from vaults.serializers import VaultSerializer
 
 
@@ -144,18 +144,33 @@ class ShipmentEventSerializer(serializers.ModelSerializer):
         fields = ['id', 'status', 'description', 'location', 'timestamp']
 
 
+
+
+class ShipmentWorkflowStageSerializer(serializers.ModelSerializer):
+    """Shipment workflow stage serializer"""
+
+    class Meta:
+        model = ShipmentWorkflowStage
+        fields = [
+            'id', 'code', 'name', 'stage_order', 'status', 'requires_customer_action',
+            'customer_action_completed', 'customer_action_note', 'customer_action_completed_at',
+            'is_blocked', 'blocked_reason', 'blocked_at', 'completed_at', 'created_at', 'updated_at'
+        ]
+        read_only_fields = fields
+
 class ShipmentSerializer(serializers.ModelSerializer):
     """Shipment serializer"""
     
     events = ShipmentEventSerializer(many=True, read_only=True)
     items_count = serializers.IntegerField(source='items.count', read_only=True)
+    workflow_stages = ShipmentWorkflowStageSerializer(many=True, read_only=True)
     
     class Meta:
         model = Shipment
         fields = [
             'id', 'tracking_number', 'carrier', 'status', 
             'destination_address', 'estimated_delivery', 
-            'created_at', 'updated_at', 'events', 'items_count'
+            'created_at', 'updated_at', 'events', 'items_count', 'workflow_stages'
         ]
         read_only_fields = ['id', 'tracking_number', 'status', 'created_at', 'updated_at']
 

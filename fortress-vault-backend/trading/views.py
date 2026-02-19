@@ -10,11 +10,12 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction as db_transaction
 from decimal import Decimal, InvalidOperation
 from datetime import date, timedelta
+from django.utils import timezone
 import uuid
 
 from django.core.cache import cache
 
-from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
+from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent, ShipmentWorkflowStage
 from vaults.models import Vault
 from users.models import Wallet
 from admin_api.models import PlatformSettings
@@ -34,14 +35,77 @@ class MetalViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
-    """Shipment viewset - read only for users"""
-    
+    """Shipment viewset for users"""
+
     serializer_class = ShipmentSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
         """Users can only see their own shipments"""
-        return Shipment.objects.filter(user=self.request.user).prefetch_related('events', 'items')
+        return Shipment.objects.filter(user=self.request.user).prefetch_related('events', 'items', 'workflow_stages')
+
+    def _get_in_progress_stage(self, shipment):
+        return shipment.workflow_stages.filter(status=ShipmentWorkflowStage.StageStatus.IN_PROGRESS).order_by('stage_order').first()
+
+    @action(detail=True, methods=['get'])
+    def workflow(self, request, pk=None):
+        shipment = get_object_or_404(self.get_queryset(), pk=pk)
+        stages = shipment.workflow_stages.all().order_by('stage_order')
+        active_stage = self._get_in_progress_stage(shipment)
+
+        return Response({
+            'shipment_id': str(shipment.id),
+            'status': shipment.status,
+            'active_stage': {
+                'id': str(active_stage.id),
+                'code': active_stage.code,
+                'name': active_stage.name,
+                'is_blocked': active_stage.is_blocked,
+                'requires_customer_action': active_stage.requires_customer_action,
+                'customer_action_completed': active_stage.customer_action_completed,
+            } if active_stage else None,
+            'stages': ShipmentSerializer(shipment).data['workflow_stages']
+        })
+
+    @action(detail=True, methods=['post'])
+    def complete_stage_action(self, request, pk=None):
+        shipment = get_object_or_404(self.get_queryset(), pk=pk)
+        active_stage = self._get_in_progress_stage(shipment)
+
+        if not active_stage:
+            return Response({'error': 'No active workflow stage to update'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.is_blocked:
+            return Response({'error': 'This stage is blocked by admin and cannot be progressed'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not active_stage.requires_customer_action:
+            return Response({'error': 'Active stage does not require customer action'}, status=status.HTTP_400_BAD_REQUEST)
+
+        action_note = request.data.get('action_note', '').strip()
+        if not action_note:
+            return Response({'error': 'action_note is required to complete this stage'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            active_stage.customer_action_completed = True
+            active_stage.customer_action_note = action_note
+            active_stage.customer_action_completed_at = timezone.now()
+            active_stage.status = ShipmentWorkflowStage.StageStatus.COMPLETED
+            active_stage.completed_at = timezone.now()
+            active_stage.save()
+
+            ShipmentEvent.objects.create(
+                shipment=shipment,
+                status=shipment.status,
+                description=f"Customer completed stage '{active_stage.name}': {action_note}",
+                location='Customer Portal'
+            )
+
+            next_stage = shipment.workflow_stages.filter(stage_order__gt=active_stage.stage_order).order_by('stage_order').first()
+            if next_stage:
+                next_stage.status = ShipmentWorkflowStage.StageStatus.IN_PROGRESS
+                next_stage.save(update_fields=['status', 'updated_at'])
+
+        return Response({'message': 'Stage action submitted successfully', 'shipment': ShipmentSerializer(shipment).data})
 
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
@@ -506,6 +570,7 @@ class TradingViewSet(viewsets.ViewSet):
                 destination_address=data['destination'],
                 status=Shipment.Status.REQUESTED
             )
+            shipment.initialize_workflow()
             
             # Link items to shipment
             for item_data in data['items']:
