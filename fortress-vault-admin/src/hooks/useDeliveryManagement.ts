@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 
-// Types
 export interface DeliveryHistoryEvent {
   id: string;
   status: string;
@@ -21,23 +20,41 @@ export interface DeliveryItem {
   status: string;
 }
 
+export interface DeliveryWorkflowStage {
+  id: string;
+  code: string;
+  name: string;
+  stage_order: number;
+  status: 'pending' | 'in_progress' | 'completed';
+  requires_customer_action: boolean;
+  customer_action_completed: boolean;
+  customer_action_note: string;
+  customer_action_completed_at: string | null;
+  is_blocked: boolean;
+  blocked_reason: string;
+  blocked_at: string | null;
+  completed_at: string | null;
+}
+
 export interface Delivery {
   id: string;
   user: number;
   user_email: string;
   user_name: string;
-  status: 'processing' | 'shipped' | 'customs' | 'delivered';
+  status: 'requested' | 'preparing' | 'shipped' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'failed';
   carrier: string;
   tracking_number: string;
   shipping_address: {
-    street: string;
-    city: string;
-    state: string;
-    postal_code: string;
-    country: string;
+    street?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+    zip?: string;
+    country?: string;
   };
   items: DeliveryItem[];
   history: DeliveryHistoryEvent[];
+  workflow_stages: DeliveryWorkflowStage[];
   estimated_delivery?: string;
   created_at: string;
   updated_at: string;
@@ -64,20 +81,24 @@ export interface AssignCarrierParams {
   tracking_number: string;
 }
 
-/**
- * Custom hook for delivery management operations
- * Provides queries and mutations for delivery oversight and tracking
- */
 export function useDeliveryManagement() {
   const queryClient = useQueryClient();
 
-  // Query: Get delivery list with optional filters
+  const invalidateDeliveryQueries = (deliveryId?: string) => {
+    queryClient.invalidateQueries({ queryKey: ['admin', 'deliveries'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    if (deliveryId) {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'deliveries', 'details', deliveryId] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'deliveries', 'history', deliveryId] });
+    }
+  };
+
   const useDeliveryList = (filters?: DeliveryFilters) => {
     return useQuery({
       queryKey: ['admin', 'deliveries', 'list', filters],
       queryFn: async () => {
         const params = new URLSearchParams();
-        
+
         if (filters?.status) params.append('status', filters.status);
         if (filters?.user) params.append('user', filters.user);
         if (filters?.date_from) params.append('date_from', filters.date_from);
@@ -86,19 +107,17 @@ export function useDeliveryManagement() {
         if (filters?.search) params.append('search', filters.search);
 
         const response = await api.get<{ results: Delivery[] } | Delivery[]>(`/deliveries/?${params.toString()}`);
-        // Handle both paginated and non-paginated responses
         const data = response.data;
         if (data && typeof data === 'object' && 'results' in data) {
           return data.results;
         }
         return Array.isArray(data) ? data : [];
       },
-      refetchInterval: 30000, // Refetch every 30 seconds
-      staleTime: 20000, // Consider data stale after 20 seconds
+      refetchInterval: 30000,
+      staleTime: 20000,
     });
   };
 
-  // Query: Get delivery details
   const useDeliveryDetails = (deliveryId: string | null) => {
     return useQuery({
       queryKey: ['admin', 'deliveries', 'details', deliveryId],
@@ -107,34 +126,31 @@ export function useDeliveryManagement() {
         const response = await api.get<Delivery>(`/deliveries/${deliveryId}/`);
         return response.data;
       },
-      enabled: !!deliveryId, // Only run query if deliveryId is provided
+      enabled: !!deliveryId,
       staleTime: 10000,
     });
   };
 
-  // Query: Get delivery history
   const useDeliveryHistory = (deliveryId: string | null) => {
     return useQuery({
       queryKey: ['admin', 'deliveries', 'history', deliveryId],
       queryFn: async () => {
         if (!deliveryId) return [];
-        const response = await api.get<{ results: DeliveryHistoryEvent[] } | DeliveryHistoryEvent[]>(`/deliveries/${deliveryId}/history/`);
-        // Handle both paginated and non-paginated responses
+        const response = await api.get<{ history?: DeliveryHistoryEvent[] } | DeliveryHistoryEvent[]>(`/deliveries/${deliveryId}/history/`);
         const data = response.data;
-        if (data && typeof data === 'object' && 'results' in data) {
-          return data.results;
+        if (Array.isArray(data)) {
+          return data;
         }
-        return Array.isArray(data) ? data : [];
+        return data.history ?? [];
       },
       enabled: !!deliveryId,
       staleTime: 10000,
     });
   };
 
-  // Mutation: Update delivery status
   const updateStatus = useMutation({
     mutationFn: async ({ deliveryId, status, description }: UpdateStatusParams) => {
-      const response = await api.post(`/deliveries/${deliveryId}/update-status/`, {
+      const response = await api.post(`/deliveries/${deliveryId}/update_status/`, {
         status,
         description,
       });
@@ -142,22 +158,13 @@ export function useDeliveryManagement() {
     },
     onSuccess: (_, variables) => {
       toast.success('Delivery status updated successfully');
-      // Invalidate and refetch relevant queries
-      queryClient.invalidateQueries({ queryKey: ['admin', 'deliveries'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
-      queryClient.invalidateQueries({ 
-        queryKey: ['admin', 'deliveries', 'details', variables.deliveryId] 
-      });
-      queryClient.invalidateQueries({ 
-        queryKey: ['admin', 'deliveries', 'history', variables.deliveryId] 
-      });
+      invalidateDeliveryQueries(variables.deliveryId);
     },
   });
 
-  // Mutation: Assign carrier and tracking number
   const assignCarrier = useMutation({
     mutationFn: async ({ deliveryId, carrier, tracking_number }: AssignCarrierParams) => {
-      const response = await api.post(`/deliveries/${deliveryId}/assign-carrier/`, {
+      const response = await api.post(`/deliveries/${deliveryId}/assign_carrier/`, {
         carrier,
         tracking_number,
       });
@@ -165,11 +172,40 @@ export function useDeliveryManagement() {
     },
     onSuccess: (_, variables) => {
       toast.success('Carrier assigned successfully');
-      // Invalidate and refetch relevant queries
-      queryClient.invalidateQueries({ queryKey: ['admin', 'deliveries'] });
-      queryClient.invalidateQueries({ 
-        queryKey: ['admin', 'deliveries', 'details', variables.deliveryId] 
-      });
+      invalidateDeliveryQueries(variables.deliveryId);
+    },
+  });
+
+  const blockStage = useMutation({
+    mutationFn: async ({ deliveryId, stage_code, reason }: { deliveryId: string; stage_code: string; reason: string }) => {
+      const response = await api.post(`/deliveries/${deliveryId}/block_stage/`, { stage_code, reason });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      toast.success('Stage blocked');
+      invalidateDeliveryQueries(variables.deliveryId);
+    },
+  });
+
+  const unblockStage = useMutation({
+    mutationFn: async ({ deliveryId, stage_code }: { deliveryId: string; stage_code: string }) => {
+      const response = await api.post(`/deliveries/${deliveryId}/unblock_stage/`, { stage_code });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      toast.success('Stage unblocked');
+      invalidateDeliveryQueries(variables.deliveryId);
+    },
+  });
+
+  const advanceStage = useMutation({
+    mutationFn: async ({ deliveryId }: { deliveryId: string }) => {
+      const response = await api.post(`/deliveries/${deliveryId}/advance_stage/`, {});
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      toast.success('Workflow advanced');
+      invalidateDeliveryQueries(variables.deliveryId);
     },
   });
 
@@ -179,5 +215,8 @@ export function useDeliveryManagement() {
     useDeliveryHistory,
     updateStatus,
     assignCarrier,
+    blockStage,
+    unblockStage,
+    advanceStage,
   };
 }

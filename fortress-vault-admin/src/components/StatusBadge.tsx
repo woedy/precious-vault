@@ -18,8 +18,12 @@ const badgeVariants = cva(
         failed: 'bg-red-100 text-red-800 border border-red-300',
         
         // Delivery statuses
+        requested: 'bg-amber-100 text-amber-800 border border-amber-300',
+        preparing: 'bg-blue-100 text-blue-800 border border-blue-300',
         processing: 'bg-blue-100 text-blue-800 border border-blue-300',
         shipped: 'bg-purple-100 text-purple-800 border border-purple-300',
+        in_transit: 'bg-indigo-100 text-indigo-800 border border-indigo-300',
+        out_for_delivery: 'bg-cyan-100 text-cyan-800 border border-cyan-300',
         delivered: 'bg-green-100 text-green-800 border border-green-300',
         cancelled: 'bg-gray-100 text-gray-800 border border-gray-300',
         
@@ -58,7 +62,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({
   const statusLower = status?.toLowerCase();
   const validVariants = [
     'unverified', 'pending', 'verified', 'rejected', 'completed', 'failed',
-    'processing', 'shipped', 'delivered', 'cancelled', 'active', 'suspended',
+    'requested', 'preparing', 'processing', 'shipped', 'in_transit', 'out_for_delivery', 'delivered', 'cancelled', 'active', 'suspended',
     'default', 'success', 'warning', 'error', 'info'
   ];
   const autoVariant = variant || (statusLower && validVariants.includes(statusLower) ? statusLower : 'default');
