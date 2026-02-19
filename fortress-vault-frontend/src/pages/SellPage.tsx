@@ -43,7 +43,7 @@ export default function SellPage() {
   const handleSell = () => {
     setErrorMessage(null);
     if (platformSettings && platformSettings.metals_selling_enabled === false) {
-      setErrorMessage('Selling is currently paused by the platform administrator. Please try again later.');
+      setErrorMessage('Selling is temporarily unavailable. Please contact an administrator.');
       return;
     }
 
@@ -57,7 +57,7 @@ export default function SellPage() {
     setErrorMessage(null);
 
     if (platformSettings && platformSettings.metals_selling_enabled === false) {
-      setErrorMessage('Selling is currently paused by the platform administrator. Please try again later.');
+      setErrorMessage('Selling is temporarily unavailable. Please contact an administrator.');
       setStep('select');
       return;
     }
