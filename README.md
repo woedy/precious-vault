@@ -93,6 +93,29 @@ fortress-vault/
 - **channels** - WebSocket server (port 9000)
 - **frontend** - React app with Nginx (port 80)
 
+
+## Live Pricing Configuration
+
+To enable live metal pricing jobs (instead of simulated fallback), configure backend environment variables in `fortress-vault-backend/.env`:
+
+```env
+# Use exchangerate.host for both FX and metals
+METAL_PRICE_API_PROVIDER=exchangerate_host
+FX_API_KEY=your_exchangerate_host_key
+FX_BASE_URL=https://api.exchangerate.host
+# Optional: metal icon base path used by API responses
+FX_METAL_IMAGE_BASE_URL=https://api.exchangerate.host/assets/metals
+
+# Optional: if using metals-api.com instead
+# METAL_PRICE_API_PROVIDER=metalsapi
+# METAL_PRICE_API_KEY=your_metals_api_key
+# METAL_PRICE_API_URL=https://metals-api.com/api/latest
+```
+
+Then restart `backend`, `celery`, and `celery-beat` services so workers load new env values.
+
+`image_url` for each metal is generated from `FX_METAL_IMAGE_BASE_URL` when set; otherwise it falls back to `${FX_BASE_URL}/assets/metals/<symbol>.png` (e.g., `xau.png`).
+
 ## Development
 
 ### Backend Only

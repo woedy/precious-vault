@@ -5,6 +5,7 @@ export interface MetalPriceItem {
   id: string;
   name: string;
   symbol: string;
+  image_url: string | null;
   price_usd_per_oz: number;
   price_gbp_per_oz: number | null;
   last_updated: string;
