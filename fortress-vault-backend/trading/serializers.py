@@ -9,10 +9,26 @@ from vaults.serializers import VaultSerializer
 
 class MetalSerializer(serializers.ModelSerializer):
     """Metal serializer"""
+
+    image_url = serializers.SerializerMethodField()
+
+    METAL_IMAGE_MAP = {
+        'AU': 'https://img.icons8.com/color/96/gold-bars.png',
+        'AG': 'https://img.icons8.com/color/96/silver-bars.png',
+        'PT': 'https://img.icons8.com/color/96/platinum-bars.png',
+        'PD': 'https://img.icons8.com/color/96/metal.png',
+    }
+
+    @classmethod
+    def get_image_url_for_symbol(cls, symbol):
+        return cls.METAL_IMAGE_MAP.get((symbol or '').upper())
+
+    def get_image_url(self, obj):
+        return self.get_image_url_for_symbol(obj.symbol)
     
     class Meta:
         model = Metal
-        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'last_updated']
+        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'image_url', 'last_updated']
         read_only_fields = ['id', 'last_updated']
 
 

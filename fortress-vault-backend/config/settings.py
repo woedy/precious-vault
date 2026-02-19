@@ -18,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 environ.Env.read_env(BASE_DIR / '.env')
 
 # External pricing services (optional)
+METAL_PRICE_API_PROVIDER = env('METAL_PRICE_API_PROVIDER', default='metalsapi')
 METAL_PRICE_API_KEY = env('METAL_PRICE_API_KEY', default='')
 FX_API_KEY = env('FX_API_KEY', default='')
 FX_BASE_URL = env('FX_BASE_URL', default='https://api.exchangerate.host')
@@ -252,8 +253,7 @@ DJOSER = {
 }
 
 # Metal Price API
-METAL_PRICE_API_KEY = env('METAL_PRICE_API_KEY', default='')
-METAL_PRICE_API_URL = env('METAL_PRICE_API_URL', default='')
+METAL_PRICE_API_URL = env('METAL_PRICE_API_URL', default='https://metals-api.com/api/latest')
 
 # Logging
 LOGGING = {
