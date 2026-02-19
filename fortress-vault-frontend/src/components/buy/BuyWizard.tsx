@@ -33,7 +33,7 @@ interface PaginatedResponse<T> {
 interface Product {
     id: string;
     name: string;
-    metal: { id: string; symbol: string; name: string; current_price: number };
+    metal: { id: string; symbol: string; name: string; current_price: number; image_url?: string | null };
     weight_oz: number;
     premium_per_oz: number;
     image_url: string | null;
@@ -186,8 +186,12 @@ export default function BuyWizard() {
                                         onClick={() => handleProductSelect(product.id)}
                                         className="border rounded-xl p-4 cursor-pointer hover:border-primary hover:bg-muted/50 transition-all group"
                                     >
-                                        <div className="aspect-square bg-white rounded-lg mb-4 flex items-center justify-center p-4 shadow-sm group-hover:shadow-md">
-                                            <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${product.metal.symbol === 'Au' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
+                                        <div className="aspect-square bg-white rounded-lg mb-4 flex items-center justify-center p-4 shadow-sm group-hover:shadow-md overflow-hidden">
+                                            {product.metal.image_url ? (
+                                                <img src={product.metal.image_url} alt={`${product.metal.name} icon`} className="h-24 w-24 object-cover rounded-full" loading="lazy" />
+                                            ) : (
+                                                <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${product.metal.symbol === 'Au' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
+                                            )}
                                         </div>
                                         <div className="flex justify-between items-start mb-2">
                                             <div>
@@ -217,7 +221,11 @@ export default function BuyWizard() {
                             <h2 className="text-2xl font-bold mb-6">Configure Order</h2>
 
                             <div className="flex gap-6 mb-8 items-center bg-muted/30 p-4 rounded-xl">
-                                <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${selectedProduct.metal.symbol === 'Au' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
+                                {selectedProduct.metal.image_url ? (
+                                    <img src={selectedProduct.metal.image_url} alt={`${selectedProduct.metal.name} icon`} className="w-16 h-16 rounded-full object-cover" loading="lazy" />
+                                ) : (
+                                    <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${selectedProduct.metal.symbol === 'Au' ? 'from-yellow-200 to-amber-500' : 'from-slate-200 to-slate-400'}`} />
+                                )}
                                 <div>
                                     <h3 className="font-bold text-xl">{selectedProduct.name}</h3>
                                     <p className="text-muted-foreground">{selectedProduct.manufacturer} • {selectedProduct.weight_oz}oz</p>
