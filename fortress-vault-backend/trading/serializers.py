@@ -3,16 +3,54 @@ Trading serializers
 """
 
 from rest_framework import serializers
+from django.conf import settings
+from urllib.parse import urlparse
 from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
 from vaults.serializers import VaultSerializer
 
 
 class MetalSerializer(serializers.ModelSerializer):
     """Metal serializer"""
+
+    image_url = serializers.SerializerMethodField()
+
+    METAL_IMAGE_MAP = {
+        'AU': 'https://img.icons8.com/color/96/gold-bars.png',
+        'AG': 'https://img.icons8.com/color/96/silver-bars.png',
+        'PT': 'https://img.icons8.com/color/96/platinum-bars.png',
+        'PD': 'https://img.icons8.com/color/96/metal.png',
+    }
+
+    # exchangerate.host metal assets typically use x-prefixed ISO metal codes
+    METAL_IMAGE_FILENAME_MAP = {
+        'AU': 'xau.png',
+        'AG': 'xag.png',
+        'PT': 'xpt.png',
+        'PD': 'xpd.png',
+    }
+
+    @classmethod
+    def get_image_url_for_symbol(cls, symbol):
+        normalized_symbol = (symbol or '').upper()
+
+        configured_base = getattr(settings, 'FX_METAL_IMAGE_BASE_URL', '').strip()
+        if configured_base:
+            parsed = urlparse(configured_base)
+            if 'exchangerate.host' in (parsed.netloc or '').lower():
+                # exchangerate.host does not provide public metal image assets.
+                return cls.METAL_IMAGE_MAP.get(normalized_symbol)
+
+            filename = cls.METAL_IMAGE_FILENAME_MAP.get(normalized_symbol, f"{normalized_symbol.lower()}.png")
+            return f"{configured_base.rstrip('/')}/{filename}"
+
+        return cls.METAL_IMAGE_MAP.get(normalized_symbol)
+
+    def get_image_url(self, obj):
+        return self.get_image_url_for_symbol(obj.symbol)
     
     class Meta:
         model = Metal
-        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'last_updated']
+        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'image_url', 'last_updated']
         read_only_fields = ['id', 'last_updated']
 
 

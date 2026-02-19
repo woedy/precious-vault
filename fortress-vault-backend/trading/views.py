@@ -86,6 +86,7 @@ class MetalPricesPublicView(viewsets.ViewSet):
                 'id': str(metal.id),
                 'name': metal.name,
                 'symbol': metal.symbol,
+                'image_url': MetalSerializer.get_image_url_for_symbol(metal.symbol),
                 'price_usd_per_oz': float(usd),
                 'price_gbp_per_oz': float(gbp) if gbp is not None else None,
                 'last_updated': metal.last_updated,
