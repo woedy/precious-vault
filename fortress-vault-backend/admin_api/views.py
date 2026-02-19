@@ -307,17 +307,32 @@ class PlatformSettingsView(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def retrieve(self, request):
         obj = PlatformSettings.get_solo()
-        return Response({'metals_buying_enabled': obj.metals_buying_enabled})
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled, 'metals_selling_enabled': obj.metals_selling_enabled})
 
     @action(detail=False, methods=['post'])
     def update(self, request):
         obj = PlatformSettings.get_solo()
-        enabled = request.data.get('metals_buying_enabled')
-        if not isinstance(enabled, bool):
+        buying_enabled = request.data.get('metals_buying_enabled')
+        selling_enabled = request.data.get('metals_selling_enabled')
+
+        if buying_enabled is not None and not isinstance(buying_enabled, bool):
             return Response({'error': 'metals_buying_enabled must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
-        obj.metals_buying_enabled = enabled
-        obj.save(update_fields=['metals_buying_enabled', 'updated_at'])
-        return Response({'metals_buying_enabled': obj.metals_buying_enabled})
+        if selling_enabled is not None and not isinstance(selling_enabled, bool):
+            return Response({'error': 'metals_selling_enabled must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+
+        fields_to_update = ['updated_at']
+        if buying_enabled is not None:
+            obj.metals_buying_enabled = buying_enabled
+            fields_to_update.append('metals_buying_enabled')
+        if selling_enabled is not None:
+            obj.metals_selling_enabled = selling_enabled
+            fields_to_update.append('metals_selling_enabled')
+
+        if len(fields_to_update) == 1:
+            return Response({'error': 'At least one setting must be provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj.save(update_fields=fields_to_update)
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled, 'metals_selling_enabled': obj.metals_selling_enabled})
 
 
 class UserManagementViewSet(viewsets.ReadOnlyModelViewSet):
