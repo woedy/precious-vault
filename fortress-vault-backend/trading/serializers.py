@@ -3,16 +3,60 @@ Trading serializers
 """
 
 from rest_framework import serializers
+from django.conf import settings
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from .models import Metal, Product, PortfolioItem, Transaction, Shipment, ShipmentEvent
 from vaults.serializers import VaultSerializer
 
 
 class MetalSerializer(serializers.ModelSerializer):
     """Metal serializer"""
+
+    image_url = serializers.SerializerMethodField()
+
+    METAL_IMAGE_MAP = {
+        'AU': 'https://img.icons8.com/color/96/gold-bars.png',
+        'AG': 'https://img.icons8.com/color/96/silver-bars.png',
+        'PT': 'https://img.icons8.com/color/96/platinum-bars.png',
+        'PD': 'https://img.icons8.com/color/96/metal.png',
+    }
+
+    @classmethod
+    def _append_access_key_if_needed(cls, image_url):
+        fx_api_key = getattr(settings, 'FX_API_KEY', '').strip()
+        if not fx_api_key:
+            return image_url
+
+        parsed = urlparse(image_url)
+        if 'exchangerate.host' not in (parsed.netloc or '').lower():
+            return image_url
+
+        query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query_params.setdefault('access_key', fx_api_key)
+        return urlunparse(parsed._replace(query=urlencode(query_params)))
+
+    @classmethod
+    def get_image_url_for_symbol(cls, symbol):
+        normalized_symbol = (symbol or '').upper()
+
+        configured_base = getattr(settings, 'FX_METAL_IMAGE_BASE_URL', '').strip()
+        if configured_base:
+            image_url = f"{configured_base.rstrip('/')}/{normalized_symbol.lower()}.png"
+            return cls._append_access_key_if_needed(image_url)
+
+        fx_base_url = getattr(settings, 'FX_BASE_URL', '').strip()
+        if fx_base_url:
+            image_url = f"{fx_base_url.rstrip('/')}/assets/metals/{normalized_symbol.lower()}.png"
+            return cls._append_access_key_if_needed(image_url)
+
+        return cls.METAL_IMAGE_MAP.get(normalized_symbol)
+
+    def get_image_url(self, obj):
+        return self.get_image_url_for_symbol(obj.symbol)
     
     class Meta:
         model = Metal
-        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'last_updated']
+        fields = ['id', 'name', 'symbol', 'current_price', 'price_change_24h', 'image_url', 'last_updated']
         read_only_fields = ['id', 'last_updated']
 
 
