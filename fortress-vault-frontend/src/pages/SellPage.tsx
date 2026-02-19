@@ -4,23 +4,33 @@ import { Layout } from '@/components/layout/Layout';
 import { useTrading } from '@/hooks/useTrading';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useMetalPrices } from '@/hooks/useMetalPrices';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
+import api from '@/lib/api';
 
 export default function SellPage() {
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select');
   const [soldMeta, setSoldMeta] = useState<{ metalName: string; metalSymbol: string; amountOz: string } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: dashboard, isLoading } = useDashboardData();
   const { sell } = useTrading();
   const { data: metalPrices } = useMetalPrices();
+  const { data: platformSettings } = useQuery<{ metals_buying_enabled: boolean; metals_selling_enabled: boolean }>({
+    queryKey: ['platform', 'settings'],
+    queryFn: async () => {
+      const res = await api.get('/trading/platform/settings/');
+      return res.data;
+    },
+    staleTime: 15000,
+  });
 
   // Use portfolio_items so we can sell specific items (with IDs)
   // We filter to only show items that can be sold (e.g. vaulted)
@@ -31,6 +41,12 @@ export default function SellPage() {
   const selectedWeight = Number(selected?.weight_oz || 0);
 
   const handleSell = () => {
+    setErrorMessage(null);
+    if (platformSettings && platformSettings.metals_selling_enabled === false) {
+      setErrorMessage('Selling is currently paused by the platform administrator. Please try again later.');
+      return;
+    }
+
     if (selected && amount) {
       setStep('confirm');
     }
@@ -38,6 +54,14 @@ export default function SellPage() {
 
   const handleConfirm = async () => {
     if (!selected) return;
+    setErrorMessage(null);
+
+    if (platformSettings && platformSettings.metals_selling_enabled === false) {
+      setErrorMessage('Selling is currently paused by the platform administrator. Please try again later.');
+      setStep('select');
+      return;
+    }
+
     try {
       setSoldMeta({
         metalName: selected.metal.name,
@@ -50,8 +74,10 @@ export default function SellPage() {
       });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setStep('success');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Sale failed", error);
+      setErrorMessage(error.response?.data?.error || 'We could not complete your sale right now. Please review your request and try again.');
+      setStep('select');
     }
   };
 
@@ -78,6 +104,13 @@ export default function SellPage() {
               <h1 className="text-3xl font-bold text-foreground">Sell Metals</h1>
               <p className="text-muted-foreground">Select from your holdings and enter the amount to sell.</p>
             </div>
+
+            {errorMessage && (
+              <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5" />
+                <p className="text-sm font-medium">{errorMessage}</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               {holdings.map((holding) => (

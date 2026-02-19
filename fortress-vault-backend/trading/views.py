@@ -58,7 +58,7 @@ class PlatformSettingsPublicView(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def retrieve(self, request):
         obj = PlatformSettings.get_solo()
-        return Response({'metals_buying_enabled': obj.metals_buying_enabled})
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled, 'metals_selling_enabled': obj.metals_selling_enabled})
 
 
 class MetalPricesPublicView(viewsets.ViewSet):
@@ -262,6 +262,13 @@ class TradingViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def sell(self, request):
         """Sell precious metals"""
+        settings_obj = PlatformSettings.get_solo()
+        if not settings_obj.metals_selling_enabled:
+            return Response(
+                {'error': 'Selling is temporarily unavailable. Please try again later or contact support.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
         serializer = SellMetalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
