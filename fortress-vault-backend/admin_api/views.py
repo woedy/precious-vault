@@ -11,10 +11,11 @@ from django.db.models import Count, Sum, Q
 from django.db import transaction as db_transaction
 from decimal import Decimal
 from datetime import datetime, timedelta
+from django.utils import timezone
 from celery.result import AsyncResult
 
 from users.models import User, Wallet
-from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
+from trading.models import Transaction, Shipment, ShipmentEvent, ShipmentWorkflowStage, PortfolioItem, Metal, Product
 from .models import AdminAction, TransactionNote, DevEmail, PlatformSettings
 from .serializers import (
     AdminKYCSerializer, AdminUserListSerializer, AdminUserDetailSerializer,
@@ -863,8 +864,125 @@ class AdminShipmentViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
     
     def get_queryset(self):
-        return Shipment.objects.select_related('user').prefetch_related('items', 'events')
+        return Shipment.objects.select_related('user').prefetch_related('items', 'events', 'workflow_stages')
     
+    def _get_active_stage(self, delivery):
+        return delivery.workflow_stages.filter(status=ShipmentWorkflowStage.StageStatus.IN_PROGRESS).order_by('stage_order').first()
+
+    def _ensure_workflow(self, delivery):
+        if not delivery.workflow_stages.exists():
+            delivery.initialize_workflow()
+
+    @action(detail=True, methods=['post'])
+    def block_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+        reason = (request.data.get('reason') or '').strip()
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not reason:
+            return Response({'error': 'reason is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = True
+        stage.blocked_reason = reason
+        stage.blocked_at = timezone.now()
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin blocked workflow stage '{stage.name}': {reason}",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage blocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def unblock_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = False
+        stage.blocked_reason = ''
+        stage.blocked_at = None
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin unblocked workflow stage '{stage.name}'",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage unblocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def advance_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+
+        active_stage = self._get_active_stage(delivery)
+        if not active_stage:
+            return Response({'error': 'No active stage found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.is_blocked:
+            return Response({'error': 'Cannot advance while active stage is blocked'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.requires_customer_action and not active_stage.customer_action_completed:
+            return Response({'error': 'Customer action is required before advancing this stage'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            active_stage.status = ShipmentWorkflowStage.StageStatus.COMPLETED
+            active_stage.completed_at = timezone.now()
+            active_stage.save(update_fields=['status', 'completed_at', 'updated_at'])
+
+            next_stage = delivery.workflow_stages.filter(stage_order__gt=active_stage.stage_order).order_by('stage_order').first()
+            status_map = {
+                'packaging': Shipment.Status.PREPARING,
+                'in_transit': Shipment.Status.IN_TRANSIT,
+                'out_for_delivery': Shipment.Status.OUT_FOR_DELIVERY,
+                'delivery_completed': Shipment.Status.DELIVERED,
+            }
+
+            if next_stage:
+                next_stage.status = ShipmentWorkflowStage.StageStatus.IN_PROGRESS
+                next_stage.save(update_fields=['status', 'updated_at'])
+                mapped_status = status_map.get(next_stage.code)
+            else:
+                mapped_status = Shipment.Status.DELIVERED
+
+            if mapped_status:
+                delivery.status = mapped_status
+                delivery.save(update_fields=['status', 'updated_at'])
+
+            ShipmentEvent.objects.create(
+                shipment=delivery,
+                status=delivery.status,
+                description=f"Workflow advanced from '{active_stage.name}' to '{next_stage.name if next_stage else 'completed'}'",
+                location=request.data.get('location') or 'Admin Control'
+            )
+
+            if delivery.status == Shipment.Status.DELIVERED:
+                delivery.items.update(status=PortfolioItem.Status.DELIVERED)
+            elif delivery.status in [Shipment.Status.SHIPPED, Shipment.Status.IN_TRANSIT, Shipment.Status.OUT_FOR_DELIVERY, Shipment.Status.PREPARING]:
+                delivery.items.update(status=PortfolioItem.Status.IN_TRANSIT)
+
+        return Response({'message': 'Workflow stage advanced successfully', 'delivery': self.get_serializer(delivery).data})
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update shipment status"""
@@ -951,7 +1069,7 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         """Get shipments with filtering"""
-        queryset = Shipment.objects.select_related('user').prefetch_related('items', 'events')
+        queryset = Shipment.objects.select_related('user').prefetch_related('items', 'events', 'workflow_stages')
         
         # Filter by status
         status_filter = self.request.query_params.get('status')
@@ -1014,10 +1132,128 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
             'history': serializer.data
         })
     
+    def _get_active_stage(self, delivery):
+        return delivery.workflow_stages.filter(status=ShipmentWorkflowStage.StageStatus.IN_PROGRESS).order_by('stage_order').first()
+
+    def _ensure_workflow(self, delivery):
+        if not delivery.workflow_stages.exists():
+            delivery.initialize_workflow()
+
+    @action(detail=True, methods=['post'])
+    def block_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+        reason = (request.data.get('reason') or '').strip()
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not reason:
+            return Response({'error': 'reason is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = True
+        stage.blocked_reason = reason
+        stage.blocked_at = timezone.now()
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin blocked workflow stage '{stage.name}': {reason}",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage blocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def unblock_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = False
+        stage.blocked_reason = ''
+        stage.blocked_at = None
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin unblocked workflow stage '{stage.name}'",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage unblocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def advance_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+
+        active_stage = self._get_active_stage(delivery)
+        if not active_stage:
+            return Response({'error': 'No active stage found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.is_blocked:
+            return Response({'error': 'Cannot advance while active stage is blocked'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.requires_customer_action and not active_stage.customer_action_completed:
+            return Response({'error': 'Customer action is required before advancing this stage'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            active_stage.status = ShipmentWorkflowStage.StageStatus.COMPLETED
+            active_stage.completed_at = timezone.now()
+            active_stage.save(update_fields=['status', 'completed_at', 'updated_at'])
+
+            next_stage = delivery.workflow_stages.filter(stage_order__gt=active_stage.stage_order).order_by('stage_order').first()
+            status_map = {
+                'packaging': Shipment.Status.PREPARING,
+                'in_transit': Shipment.Status.IN_TRANSIT,
+                'out_for_delivery': Shipment.Status.OUT_FOR_DELIVERY,
+                'delivery_completed': Shipment.Status.DELIVERED,
+            }
+
+            if next_stage:
+                next_stage.status = ShipmentWorkflowStage.StageStatus.IN_PROGRESS
+                next_stage.save(update_fields=['status', 'updated_at'])
+                mapped_status = status_map.get(next_stage.code)
+            else:
+                mapped_status = Shipment.Status.DELIVERED
+
+            if mapped_status:
+                delivery.status = mapped_status
+                delivery.save(update_fields=['status', 'updated_at'])
+
+            ShipmentEvent.objects.create(
+                shipment=delivery,
+                status=delivery.status,
+                description=f"Workflow advanced from '{active_stage.name}' to '{next_stage.name if next_stage else 'completed'}'",
+                location=request.data.get('location') or 'Admin Control'
+            )
+
+            if delivery.status == Shipment.Status.DELIVERED:
+                delivery.items.update(status=PortfolioItem.Status.DELIVERED)
+            elif delivery.status in [Shipment.Status.SHIPPED, Shipment.Status.IN_TRANSIT, Shipment.Status.OUT_FOR_DELIVERY, Shipment.Status.PREPARING]:
+                delivery.items.update(status=PortfolioItem.Status.IN_TRANSIT)
+
+        return Response({'message': 'Workflow stage advanced successfully', 'delivery': self.get_serializer(delivery).data})
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update delivery status and create history entry"""
         delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
         new_status = request.data.get('status')
         description = request.data.get('description', '')
         location = request.data.get('location', '')
@@ -1087,6 +1323,7 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
     def assign_carrier(self, request, pk=None):
         """Assign carrier and tracking number to delivery"""
         delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
         carrier = request.data.get('carrier')
         tracking_number = request.data.get('tracking_number')
         

@@ -80,7 +80,7 @@ export type BalanceAdjustmentFormData = z.infer<typeof balanceAdjustmentSchema>;
 // ============================================================================
 
 export const deliveryStatusUpdateSchema = z.object({
-  status: z.enum(['processing', 'shipped', 'in_transit', 'customs', 'out_for_delivery', 'delivered', 'failed']),
+  status: z.enum(['requested', 'preparing', 'shipped', 'in_transit', 'out_for_delivery', 'delivered', 'failed']),
   description: z.string().max(500, 'Description must not exceed 500 characters').optional(),
 });
 
@@ -132,7 +132,7 @@ export const transactionFilterSchema = z.object({
 export type TransactionFilterFormData = z.infer<typeof transactionFilterSchema>;
 
 export const deliveryFilterSchema = z.object({
-  status: z.enum(['pending', 'processing', 'shipped', 'in_transit', 'customs', 'out_for_delivery', 'delivered', 'failed', 'all']).optional(),
+  status: z.enum(['requested', 'preparing', 'shipped', 'in_transit', 'out_for_delivery', 'delivered', 'failed', 'all']).optional(),
   user: z.string().optional(),
   carrier: z.string().optional(),
   dateFrom: z.string().optional(),

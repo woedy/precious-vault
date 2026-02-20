@@ -4,7 +4,7 @@ Admin API serializers
 
 from rest_framework import serializers
 from users.models import User, Address, Wallet
-from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
+from trading.models import Transaction, Shipment, ShipmentEvent, ShipmentWorkflowStage, PortfolioItem, Metal, Product
 from .models import AdminAction, TransactionNote, DevEmail
 
 
@@ -224,6 +224,17 @@ class DeliveryItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'metal_name', 'metal_symbol', 'product_name', 'weight_oz', 'quantity', 'status']
 
 
+class AdminShipmentWorkflowStageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShipmentWorkflowStage
+        fields = [
+            'id', 'code', 'name', 'stage_order', 'status', 'requires_customer_action',
+            'customer_action_completed', 'customer_action_note', 'customer_action_completed_at',
+            'is_blocked', 'blocked_reason', 'blocked_at', 'completed_at'
+        ]
+        read_only_fields = fields
+
+
 class AdminDeliverySerializer(serializers.ModelSerializer):
     """Admin delivery/shipment serializer with full details"""
     
@@ -232,12 +243,13 @@ class AdminDeliverySerializer(serializers.ModelSerializer):
     shipping_address = serializers.JSONField(source='destination_address', read_only=True)
     items = DeliveryItemSerializer(many=True, read_only=True)
     history = DeliveryHistorySerializer(source='events', many=True, read_only=True)
+    workflow_stages = AdminShipmentWorkflowStageSerializer(many=True, read_only=True)
     
     class Meta:
         model = Shipment
         fields = [
             'id', 'user', 'user_email', 'user_name', 'status', 'carrier',
-            'tracking_number', 'shipping_address', 'items', 'history',
+            'tracking_number', 'shipping_address', 'items', 'history', 'workflow_stages',
             'estimated_delivery', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'created_at', 'updated_at']
