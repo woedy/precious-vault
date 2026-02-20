@@ -13,6 +13,12 @@ const TransactionManagementPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedTxId, setSelectedTxId] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [generatorForm, setGeneratorForm] = useState({
+    user_identifier: '',
+    date_from: '',
+    date_to: '',
+    transactions_per_day: '2',
+  });
 
   // Initialize filters from URL params
   const [filters, setFilters] = useState<TransactionFilters>(() => ({
@@ -26,7 +32,7 @@ const TransactionManagementPage: React.FC = () => {
     search: searchParams.get('search') || '',
   }));
 
-  const { pendingTransactions, useFilteredTransactions } = useTransactionManagement();
+  const { pendingTransactions, useFilteredTransactions, generateTransactions } = useTransactionManagement();
 
   // Determine which query to use based on filters
   const hasActiveFilters = Object.values(filters).some(v => v !== '');
@@ -177,6 +183,78 @@ const TransactionManagementPage: React.FC = () => {
         <div className="rounded-lg border bg-card p-6">
           <div className="text-2xl font-bold">{stats.failed}</div>
           <p className="text-sm text-muted-foreground">Failed</p>
+        </div>
+      </div>
+
+      {/* Synthetic Transaction Generator */}
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Generate Realistic Transactions</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Create realistic buys, sells, storage fees, withdrawal/deposit, and tax-included records for a customer over a date range.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <Label htmlFor="gen_user">Customer Email or ID</Label>
+            <Input
+              id="gen_user"
+              placeholder="user@email.com or UUID"
+              value={generatorForm.user_identifier}
+              onChange={(e) => setGeneratorForm((prev) => ({ ...prev, user_identifier: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="gen_from">Date From</Label>
+            <Input
+              id="gen_from"
+              type="date"
+              value={generatorForm.date_from}
+              onChange={(e) => setGeneratorForm((prev) => ({ ...prev, date_from: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="gen_to">Date To</Label>
+            <Input
+              id="gen_to"
+              type="date"
+              value={generatorForm.date_to}
+              onChange={(e) => setGeneratorForm((prev) => ({ ...prev, date_to: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="gen_per_day">Transactions / Day</Label>
+            <Input
+              id="gen_per_day"
+              type="number"
+              min={1}
+              max={10}
+              value={generatorForm.transactions_per_day}
+              onChange={(e) => setGeneratorForm((prev) => ({ ...prev, transactions_per_day: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            onClick={async () => {
+              await generateTransactions.mutateAsync({
+                user_identifier: generatorForm.user_identifier.trim(),
+                date_from: generatorForm.date_from,
+                date_to: generatorForm.date_to,
+                transactions_per_day: Number(generatorForm.transactions_per_day || 2),
+              });
+            }}
+            disabled={
+              generateTransactions.isPending ||
+              !generatorForm.user_identifier.trim() ||
+              !generatorForm.date_from ||
+              !generatorForm.date_to
+            }
+          >
+            {generateTransactions.isPending ? 'Generating...' : 'Generate Transactions'}
+          </Button>
         </div>
       </div>
 
