@@ -3,8 +3,8 @@ Admin API serializers
 """
 
 from rest_framework import serializers
-from users.models import User, Address, Wallet
-from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
+from users.models import User, Address, Wallet, ChatThread, ChatMessage
+from trading.models import Transaction, Shipment, ShipmentEvent, ShipmentWorkflowStage, PortfolioItem, Metal, Product
 from .models import AdminAction, TransactionNote, DevEmail
 
 
@@ -224,6 +224,17 @@ class DeliveryItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'metal_name', 'metal_symbol', 'product_name', 'weight_oz', 'quantity', 'status']
 
 
+class AdminShipmentWorkflowStageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShipmentWorkflowStage
+        fields = [
+            'id', 'code', 'name', 'stage_order', 'status', 'requires_customer_action',
+            'customer_action_completed', 'customer_action_note', 'customer_action_completed_at',
+            'is_blocked', 'blocked_reason', 'blocked_at', 'completed_at'
+        ]
+        read_only_fields = fields
+
+
 class AdminDeliverySerializer(serializers.ModelSerializer):
     """Admin delivery/shipment serializer with full details"""
     
@@ -232,12 +243,13 @@ class AdminDeliverySerializer(serializers.ModelSerializer):
     shipping_address = serializers.JSONField(source='destination_address', read_only=True)
     items = DeliveryItemSerializer(many=True, read_only=True)
     history = DeliveryHistorySerializer(source='events', many=True, read_only=True)
+    workflow_stages = AdminShipmentWorkflowStageSerializer(many=True, read_only=True)
     
     class Meta:
         model = Shipment
         fields = [
             'id', 'user', 'user_email', 'user_name', 'status', 'carrier',
-            'tracking_number', 'shipping_address', 'items', 'history',
+            'tracking_number', 'shipping_address', 'items', 'history', 'workflow_stages',
             'estimated_delivery', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'created_at', 'updated_at']
@@ -342,3 +354,51 @@ class DashboardMetricsSerializer(serializers.Serializer):
     active_deliveries = serializers.IntegerField()
     transaction_volume = serializers.DecimalField(max_digits=15, decimal_places=2)
     trends = serializers.DictField()
+
+
+
+
+class AdminChatMessageSerializer(serializers.ModelSerializer):
+    sender_email = serializers.CharField(source='sender.email', read_only=True)
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'thread', 'sender', 'sender_email', 'sender_name', 'sender_role', 'body', 'is_read', 'created_at']
+        read_only_fields = fields
+
+    def get_sender_name(self, obj):
+        full_name = f"{obj.sender.first_name} {obj.sender.last_name}".strip()
+        return full_name if full_name else obj.sender.username
+
+    def get_sender_role(self, obj):
+        return 'admin' if obj.sender.is_staff else 'customer'
+
+
+class AdminChatThreadSerializer(serializers.ModelSerializer):
+    customer_email = serializers.CharField(source='customer.email', read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    assigned_admin_email = serializers.CharField(source='assigned_admin.email', read_only=True, allow_null=True)
+    unread_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatThread
+        fields = [
+            'id', 'customer', 'customer_email', 'customer_name',
+            'assigned_admin', 'assigned_admin_email', 'status', 'subject',
+            'created_at', 'updated_at', 'unread_count', 'last_message'
+        ]
+        read_only_fields = fields
+
+    def get_customer_name(self, obj):
+        full_name = f"{obj.customer.first_name} {obj.customer.last_name}".strip()
+        return full_name if full_name else obj.customer.username
+
+    def get_unread_count(self, obj):
+        return obj.messages.filter(sender=obj.customer, is_read=False).count()
+
+    def get_last_message(self, obj):
+        last_msg = obj.messages.order_by('-created_at').first()
+        return AdminChatMessageSerializer(last_msg).data if last_msg else None
