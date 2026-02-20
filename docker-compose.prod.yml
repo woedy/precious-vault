@@ -120,7 +120,7 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Channels (WebSocket)
   channels:
