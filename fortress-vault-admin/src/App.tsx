@@ -15,6 +15,7 @@ import AuditLogPage from '@/pages/AuditLogPage';
 import DevEmailInboxPage from '@/pages/DevEmailInboxPage';
 import DevEmailDetailPage from '@/pages/DevEmailDetailPage';
 import MetalPricesPage from '@/pages/MetalPricesPage';
+import ChatManagementPage from '@/pages/ChatManagementPage';
 
 // Create a client for TanStack Query
 const queryClient = new QueryClient({
@@ -73,6 +74,16 @@ function App() {
                   <ProtectedRoute>
                     <AdminLayout>
                       <UserManagementPage />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/chat"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <ChatManagementPage />
                     </AdminLayout>
                   </ProtectedRoute>
                 }

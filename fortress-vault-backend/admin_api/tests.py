@@ -663,6 +663,7 @@ class TestDeliveryManagementViewSet(TestCase):
             }
         )
         self.requested_shipment.items.add(self.portfolio_item)
+        self.requested_shipment.initialize_workflow()
         
         self.shipped_shipment = Shipment.objects.create(
             user=self.regular_user,
@@ -678,6 +679,8 @@ class TestDeliveryManagementViewSet(TestCase):
             }
         )
         
+        self.shipped_shipment.initialize_workflow()
+
         self.delivered_shipment = Shipment.objects.create(
             user=self.regular_user,
             carrier='DHL',
@@ -691,6 +694,7 @@ class TestDeliveryManagementViewSet(TestCase):
                 'country': 'USA'
             }
         )
+        self.delivered_shipment.initialize_workflow()
         
         # Create some history events
         ShipmentEvent.objects.create(
@@ -927,6 +931,45 @@ class TestDeliveryManagementViewSet(TestCase):
         self.assertIn('error', response.data)
         self.assertIn('already assigned', response.data['error'])
     
+    def test_block_and_unblock_stage(self):
+        """Test admin can block and unblock a workflow stage"""
+        self.client.force_authenticate(user=self.admin_user)
+
+        block_response = self.client.post(
+            f'/api/admin/deliveries/{self.requested_shipment.id}/block_stage/',
+            {
+                'stage_code': 'compliance_paperwork',
+                'reason': 'Missing declaration form'
+            }
+        )
+        self.assertEqual(block_response.status_code, status.HTTP_200_OK)
+
+        self.requested_shipment.refresh_from_db()
+        stage = self.requested_shipment.workflow_stages.get(code='compliance_paperwork')
+        self.assertTrue(stage.is_blocked)
+        self.assertEqual(stage.blocked_reason, 'Missing declaration form')
+
+        unblock_response = self.client.post(
+            f'/api/admin/deliveries/{self.requested_shipment.id}/unblock_stage/',
+            {'stage_code': 'compliance_paperwork'}
+        )
+        self.assertEqual(unblock_response.status_code, status.HTTP_200_OK)
+
+        stage.refresh_from_db()
+        self.assertFalse(stage.is_blocked)
+
+    def test_advance_stage_requires_customer_action_completion(self):
+        """Test admin cannot advance action-gated stage until customer resolves it"""
+        self.client.force_authenticate(user=self.admin_user)
+
+        # Advance from delivery_request to address_verification
+        first_advance = self.client.post(f'/api/admin/deliveries/{self.requested_shipment.id}/advance_stage/', {})
+        self.assertEqual(first_advance.status_code, status.HTTP_200_OK)
+
+        second_advance = self.client.post(f'/api/admin/deliveries/{self.requested_shipment.id}/advance_stage/', {})
+        self.assertEqual(second_advance.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Customer action is required', second_advance.data['error'])
+
     def test_non_admin_cannot_access_deliveries(self):
         """Test that non-admin users cannot access delivery endpoints"""
         self.client.force_authenticate(user=self.regular_user)
