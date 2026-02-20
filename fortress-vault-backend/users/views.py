@@ -8,9 +8,11 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
-from .models import User, Address
+from .models import User, Address, ChatThread, ChatMessage
+from .consumers import broadcast_chat_message
 from .serializers import (
-    UserSerializer, AddressSerializer, KYCSubmissionSerializer, Enable2FASerializer
+    UserSerializer, AddressSerializer, KYCSubmissionSerializer, Enable2FASerializer,
+    ChatThreadSerializer, ChatMessageSerializer, ChatSendMessageSerializer
 )
 
 
@@ -180,3 +182,51 @@ class AddressViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Set user when creating address"""
         serializer.save(user=self.request.user)
+
+
+
+
+class ChatViewSet(viewsets.ViewSet):
+    """Customer support chat endpoints."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_or_create_thread(self, user):
+        thread, _ = ChatThread.objects.get_or_create(
+            customer=user,
+            status=ChatThread.Status.OPEN,
+            defaults={'subject': 'Shipment Support'}
+        )
+        return thread
+
+    @action(detail=False, methods=['get'])
+    def my_thread(self, request):
+        thread = self._get_or_create_thread(request.user)
+        serializer = ChatThreadSerializer(thread, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def messages(self, request):
+        thread = self._get_or_create_thread(request.user)
+        messages = thread.messages.select_related('sender').all()
+        thread.messages.exclude(sender=request.user).filter(is_read=False).update(is_read=True)
+        serializer = ChatMessageSerializer(messages, many=True)
+        return Response({'thread_id': str(thread.id), 'messages': serializer.data})
+
+    @action(detail=False, methods=['post'])
+    def send(self, request):
+        serializer = ChatSendMessageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        thread = self._get_or_create_thread(request.user)
+        message = ChatMessage.objects.create(
+            thread=thread,
+            sender=request.user,
+            body=serializer.validated_data['body'].strip()
+        )
+        thread.save(update_fields=['updated_at'])
+
+        message_payload = ChatMessageSerializer(message).data
+        broadcast_chat_message(thread.id, message_payload)
+
+        return Response({'message': 'Message sent', 'data': message_payload}, status=status.HTTP_201_CREATED)

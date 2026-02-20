@@ -5,7 +5,7 @@ User serializers
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreatePasswordRetypeSerializer as DjoserUserCreateSerializer
-from .models import User, Address, Wallet
+from .models import User, Address, Wallet, ChatThread, ChatMessage
 
 
 class AddressSerializer(serializers.ModelSerializer):
@@ -122,3 +122,56 @@ class Enable2FASerializer(serializers.Serializer):
     """Enable 2FA serializer"""
     
     enabled = serializers.BooleanField()
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    sender_email = serializers.CharField(source='sender.email', read_only=True)
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'thread', 'sender', 'sender_email', 'sender_name', 'sender_role', 'body', 'is_read', 'created_at']
+        read_only_fields = ['id', 'thread', 'sender', 'sender_email', 'sender_name', 'sender_role', 'is_read', 'created_at']
+
+    def get_sender_name(self, obj):
+        full_name = f"{obj.sender.first_name} {obj.sender.last_name}".strip()
+        return full_name if full_name else obj.sender.username
+
+    def get_sender_role(self, obj):
+        return 'admin' if obj.sender.is_staff else 'customer'
+
+
+class ChatThreadSerializer(serializers.ModelSerializer):
+    customer_email = serializers.CharField(source='customer.email', read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    assigned_admin_email = serializers.CharField(source='assigned_admin.email', read_only=True, allow_null=True)
+    last_message = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatThread
+        fields = [
+            'id', 'customer', 'customer_email', 'customer_name',
+            'assigned_admin', 'assigned_admin_email', 'status', 'subject',
+            'created_at', 'updated_at', 'last_message', 'unread_count'
+        ]
+        read_only_fields = ['id', 'customer', 'customer_email', 'customer_name', 'assigned_admin_email', 'created_at', 'updated_at', 'last_message', 'unread_count']
+
+    def get_customer_name(self, obj):
+        full_name = f"{obj.customer.first_name} {obj.customer.last_name}".strip()
+        return full_name if full_name else obj.customer.username
+
+    def get_last_message(self, obj):
+        last_msg = obj.messages.order_by('-created_at').first()
+        return ChatMessageSerializer(last_msg).data if last_msg else None
+
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return 0
+        return obj.messages.exclude(sender=request.user).filter(is_read=False).count()
+
+
+class ChatSendMessageSerializer(serializers.Serializer):
+    body = serializers.CharField(min_length=1, max_length=5000)

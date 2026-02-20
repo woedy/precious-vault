@@ -8,7 +8,8 @@ from .views import (
     KYCManagementViewSet, AdminUserViewSet, AdminTransactionViewSet,
     AdminShipmentViewSet, DeliveryManagementViewSet, AdminDashboardViewSet, AdminProductViewSet,
     DashboardMetricsView, DashboardAlertsView, DashboardRecentActionsView,
-    VaultInventoryView, TransactionVolumeView, MetalPricesView, AuditLogViewSet, DevEmailViewSet
+    VaultInventoryView, TransactionVolumeView, MetalPricesView, AuditLogViewSet, DevEmailViewSet,
+    AdminChatViewSet
 )
 from .views import PlatformSettingsView
 
@@ -19,6 +20,7 @@ router.register(r'shipments', AdminShipmentViewSet, basename='admin-shipment')
 router.register(r'deliveries', DeliveryManagementViewSet, basename='admin-delivery')
 router.register(r'audit', AuditLogViewSet, basename='admin-audit')
 router.register(r'dev-emails', DevEmailViewSet, basename='admin-dev-email')
+router.register(r'chats', AdminChatViewSet, basename='admin-chat')
 
 urlpatterns = [
     # KYC Management Endpoints
