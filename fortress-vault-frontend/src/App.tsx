@@ -28,6 +28,7 @@ import ContactPage from "./pages/company/ContactPage";
 import PrivacyPage from "./pages/legal/PrivacyPage";
 import TermsPage from "./pages/legal/TermsPage";
 import CookiePolicyPage from "./pages/legal/CookiePolicyPage";
+import SupportChatPage from "./pages/SupportChatPage";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,7 @@ const App = () => (
               <Route path="/delivery" element={<DeliveryPage />} />
               <Route path="/deposit" element={<DepositPage />} />
               <Route path="/track" element={<TrackingPage />} />
+              <Route path="/support/chat" element={<SupportChatPage />} />
 
               {/* Company Pages */}
               <Route path="/about" element={<AboutPage />} />

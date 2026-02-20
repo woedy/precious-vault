@@ -89,3 +89,44 @@ class Wallet(models.Model):
     
     def __str__(self):
         return f"{self.user.email} - ${self.cash_balance}"
+
+
+class ChatThread(models.Model):
+    """Support chat thread between a customer and admin team."""
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        CLOSED = 'closed', 'Closed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_threads')
+    assigned_admin = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_chat_threads')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    subject = models.CharField(max_length=255, default='Shipment Support')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'chat_threads'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"{self.customer.email} - {self.subject}"
+
+
+class ChatMessage(models.Model):
+    """Messages in support chat thread."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    thread = models.ForeignKey(ChatThread, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_messages')
+    body = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'chat_messages'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.sender.email}: {self.body[:40]}"
