@@ -170,6 +170,66 @@ class Shipment(models.Model):
     def __str__(self):
         return f"Shipment {self.tracking_number or self.id} - {self.status}"
 
+    def initialize_workflow(self):
+        """Create default workflow stages for shipment lifecycle."""
+        default_stages = [
+            ('delivery_request', 'Delivery Requested', False),
+            ('address_verification', 'Address / Delivery Location Verification', True),
+            ('compliance_paperwork', 'Compliance & Paperwork', True),
+            ('packaging', 'Packaging & Vault Release', False),
+            ('carrier_assignment', 'Carrier Assignment', False),
+            ('in_transit', 'In Transit', False),
+            ('out_for_delivery', 'Out For Delivery', False),
+            ('delivery_completed', 'Delivered', False),
+        ]
+
+        if self.workflow_stages.exists():
+            return
+
+        for idx, (code, name, requires_customer_action) in enumerate(default_stages):
+            ShipmentWorkflowStage.objects.create(
+                shipment=self,
+                code=code,
+                name=name,
+                stage_order=idx,
+                status=ShipmentWorkflowStage.StageStatus.IN_PROGRESS if idx == 0 else ShipmentWorkflowStage.StageStatus.PENDING,
+                requires_customer_action=requires_customer_action,
+            )
+
+
+class ShipmentWorkflowStage(models.Model):
+    """Workflow stage for a shipment process with admin and customer controls."""
+
+    class StageStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        IN_PROGRESS = 'in_progress', 'In Progress'
+        COMPLETED = 'completed', 'Completed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    shipment = models.ForeignKey(Shipment, on_delete=models.CASCADE, related_name='workflow_stages')
+    code = models.CharField(max_length=60)
+    name = models.CharField(max_length=120)
+    stage_order = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=StageStatus.choices, default=StageStatus.PENDING)
+    requires_customer_action = models.BooleanField(default=False)
+    customer_action_completed = models.BooleanField(default=False)
+    customer_action_note = models.TextField(blank=True)
+    customer_action_completed_at = models.DateTimeField(null=True, blank=True)
+    is_blocked = models.BooleanField(default=False)
+    blocked_reason = models.TextField(blank=True)
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'shipment_workflow_stages'
+        ordering = ['stage_order']
+        unique_together = [('shipment', 'code'), ('shipment', 'stage_order')]
+
+    def __str__(self):
+        return f"{self.shipment_id} - {self.code} ({self.status})"
+
 
 class ShipmentEvent(models.Model):
     """Shipment history events"""
