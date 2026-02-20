@@ -4,18 +4,18 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_DB: ${DB_NAME:-precious_vault}
+      POSTGRES_DB: ${DB_NAME:-fortress_vault}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-precious_vault}"]
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USER:-postgres} -d $${DB_NAME:-fortress_vault}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Redis
   redis:
@@ -27,12 +27,12 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Backend API
   backend:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
     restart: always
     command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
@@ -66,12 +66,12 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Celery Worker
   celery:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
     restart: always
     command: celery -A config worker -l info
@@ -93,12 +93,12 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Celery Beat Scheduler
   celery-beat:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
     restart: always
     command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
@@ -125,7 +125,7 @@ services:
   # Channels (WebSocket)
   channels:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
     restart: always
     command: daphne -b 0.0.0.0 -p 9000 config.asgi:application
@@ -147,12 +147,12 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Frontend
   frontend:
     build:
-      context: ./precious-vault-frontend
+      context: ./fortress-vault-frontend
       dockerfile: Dockerfile
     restart: always
     environment:
@@ -161,11 +161,11 @@ services:
     depends_on:
       - backend
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
 volumes:
   postgres_data:
 
 networks:
-  precious-vault-network:
+  fortress-vault-network:
     driver: bridge

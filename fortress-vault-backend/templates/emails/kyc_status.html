@@ -1,0 +1,26 @@
+{% extends 'emails/base_email.html' %}
+
+{% block title %}Account Verification Update{% endblock %}
+
+{% block content %}
+<div class="greeting">
+    {% if approved %}Verification Approved.{% else %}Verification Update Required.{% endif %}
+</div>
+
+<div class="message">
+    {% if approved %}
+    <p>Your identity verification has been successful. Your account is now fully active.</p>
+    <div class="btn-container">
+        <a href="{{ site_url }}/dashboard" class="btn">Go to Dashboard</a>
+    </div>
+    {% else %}
+    <p>We were unable to verify your account for the following reason:</p>
+    <p style="padding: 20px; border-left: 2px solid #D4AF37; margin: 20px 0; color: #666;">
+        {{ reason|default:"Incomplete documentation provided." }}
+    </p>
+    <div class="btn-container">
+        <a href="{{ site_url }}/settings/kyc" class="btn">Complete Verification</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,4 +1,4 @@
-# Precious Vault - Monorepo
+# Fortress Vault - Monorepo
 
 Full-stack precious metals trading platform with Django backend and React frontend.
 
@@ -68,13 +68,13 @@ docker-compose down -v
 ## Project Structure
 
 ```
-precious-vault/
+fortress-vault/
 ├── docker-compose.yml          # Main orchestration file
-├── precious-vault-frontend/    # React + TypeScript frontend
+├── fortress-vault-frontend/    # React + TypeScript frontend
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   └── src/
-└── precious-vault-backend/     # Django REST API backend
+└── fortress-vault-backend/     # Django REST API backend
     ├── Dockerfile
     ├── config/                 # Django settings
     ├── users/                  # User management
@@ -93,17 +93,41 @@ precious-vault/
 - **channels** - WebSocket server (port 9000)
 - **frontend** - React app with Nginx (port 80)
 
+
+## Live Pricing Configuration
+
+To enable live metal pricing jobs (instead of simulated fallback), configure backend environment variables in `fortress-vault-backend/.env`:
+
+```env
+# Use exchangerate.host for both FX and metals
+METAL_PRICE_API_PROVIDER=exchangerate_host
+FX_API_KEY=your_exchangerate_host_key
+FX_BASE_URL=https://api.exchangerate.host
+# Optional: custom metal icon base URL (your CDN/static host)
+# Do NOT point this to exchangerate.host (it does not serve metal icons)
+FX_METAL_IMAGE_BASE_URL=https://your-cdn.example.com/metals
+
+# Optional: if using metals-api.com instead
+# METAL_PRICE_API_PROVIDER=metalsapi
+# METAL_PRICE_API_KEY=your_metals_api_key
+# METAL_PRICE_API_URL=https://metals-api.com/api/latest
+```
+
+Then restart `backend`, `celery`, and `celery-beat` services so workers load new env values.
+
+`image_url` for each metal uses `FX_METAL_IMAGE_BASE_URL` when set to a valid custom host. If `FX_METAL_IMAGE_BASE_URL` points to `exchangerate.host` (or is unset), the API returns built-in fallback metal icons instead.
+
 ## Development
 
 ### Backend Only
 ```bash
-cd precious-vault-backend
+cd fortress-vault-backend
 docker-compose up
 ```
 
 ### Frontend Only
 ```bash
-cd precious-vault-frontend
+cd fortress-vault-frontend
 npm install
 npm run dev
 ```
@@ -130,7 +154,7 @@ docker-compose build frontend
 
 ## API Documentation
 
-See `precious-vault-backend/API_REFERENCE.md` for complete API documentation.
+See `fortress-vault-backend/API_REFERENCE.md` for complete API documentation.
 
 ## Tech Stack
 
@@ -152,4 +176,4 @@ See `precious-vault-backend/API_REFERENCE.md` for complete API documentation.
 
 ## License
 
-Proprietary - Precious Vault Platform
+Proprietary - Fortress Vault Platform

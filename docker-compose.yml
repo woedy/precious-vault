@@ -2,11 +2,12 @@ services:
   # Database
   postgres:
     image: postgres:15-alpine
-    container_name: precious-vault-db
+    container_name: fortress-vault-db
     environment:
-      POSTGRES_DB: precious_vault
+      POSTGRES_DB: fortress_vault
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    restart: on-failure
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -17,12 +18,13 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: precious-vault-redis
+    container_name: fortress-vault-redis
+    restart: on-failure
     ports:
       - "6379:6379"
     healthcheck:
@@ -31,135 +33,98 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Backend API
   backend:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-backend
-    command: python manage.py runserver 0.0.0.0:8000
+    container_name: fortress-vault-backend
+    restart: on-failure
+    command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py runserver 0.0.0.0:8000"
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
     ports:
       - "8000:8000"
-    environment:
-      - DEBUG=True
-      - SECRET_KEY=dev-secret-key-change-in-production
-      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
-      - DB_ENGINE=django.db.backends.postgresql
-      - DB_NAME=precious_vault
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CHANNEL_LAYERS_HOST=redis://redis:6379/1
-      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:80,http://localhost,http://127.0.0.1
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Celery Worker
   celery:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-celery
-    command: celery -A config worker -l info
+    container_name: fortress-vault-celery
+    restart: on-failure
+    command: celery -A config worker -l info --concurrency=1
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
+    env_file:
+      - .env
     environment:
-      - DEBUG=True
-      - SECRET_KEY=dev-secret-key-change-in-production
       - SKIP_MIGRATIONS=true
-      - DB_ENGINE=django.db.backends.postgresql
-      - DB_NAME=precious_vault
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CHANNEL_LAYERS_HOST=redis://redis:6379/1
     depends_on:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Celery Beat Scheduler
   celery-beat:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-celery-beat
+    container_name: fortress-vault-celery-beat
+    restart: on-failure
     command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
+    env_file:
+      - .env
     environment:
-      - DEBUG=True
-      - SECRET_KEY=dev-secret-key-change-in-production
       - SKIP_MIGRATIONS=true
-      - DB_ENGINE=django.db.backends.postgresql
-      - DB_NAME=precious_vault
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CHANNEL_LAYERS_HOST=redis://redis:6379/1
     depends_on:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Channels (WebSocket)
   channels:
     build:
-      context: ./precious-vault-backend
+      context: ./fortress-vault-backend
       dockerfile: Dockerfile
-    container_name: precious-vault-channels
+    container_name: fortress-vault-channels
+    restart: on-failure
     command: daphne -b 0.0.0.0 -p 9000 config.asgi:application
     volumes:
-      - ./precious-vault-backend:/app
+      - ./fortress-vault-backend:/app
     ports:
       - "9000:9000"
+    env_file:
+      - .env
     environment:
-      - DEBUG=True
-      - SECRET_KEY=dev-secret-key-change-in-production
       - SKIP_MIGRATIONS=true
-      - DB_ENGINE=django.db.backends.postgresql
-      - DB_NAME=precious_vault
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - CHANNEL_LAYERS_HOST=redis://redis:6379/1
     depends_on:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Frontend
   frontend:
     build:
-      context: ./precious-vault-frontend
+      context: ./fortress-vault-frontend
       dockerfile: Dockerfile
-    container_name: precious-vault-frontend
+    container_name: fortress-vault-frontend
     ports:
       - "80:80"
     environment:
@@ -168,11 +133,28 @@ services:
     depends_on:
       - backend
     networks:
-      - precious-vault-network
+      - fortress-vault-network
+
+  # Admin Frontend
+  admin-frontend:
+    build:
+      context: ./fortress-vault-admin
+      dockerfile: Dockerfile
+    container_name: fortress-vault-admin
+    ports:
+      - "3001:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    depends_on:
+      - backend
+    networks:
+      - fortress-vault-network
 
 volumes:
   postgres_data:
 
 networks:
-  precious-vault-network:
+  fortress-vault-network:
     driver: bridge
+
+
