@@ -52,6 +52,13 @@ export interface AddNoteParams {
   note: string;
 }
 
+export interface GenerateTransactionsParams {
+  user_identifier: string;
+  date_from: string;
+  date_to: string;
+  transactions_per_day: number;
+}
+
 /**
  * Custom hook for transaction management operations
  * Provides queries and mutations for transaction review and approval workflow
@@ -145,6 +152,19 @@ export function useTransactionManagement() {
     },
   });
 
+  // Mutation: Generate synthetic transactions for a customer/date range
+  const generateTransactions = useMutation({
+    mutationFn: async (payload: GenerateTransactionsParams) => {
+      const response = await api.post('/transactions/generate/', payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      toast.success('Synthetic transactions generated successfully');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    },
+  });
+
   // Mutation: Add note to transaction
   const addNote = useMutation({
     mutationFn: async ({ txId, note }: AddNoteParams) => {
@@ -169,6 +189,7 @@ export function useTransactionManagement() {
     useFilteredTransactions,
     approveTransaction,
     rejectTransaction,
+    generateTransactions,
     addNote,
   };
 }

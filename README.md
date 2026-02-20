@@ -156,6 +156,17 @@ docker-compose build frontend
 
 See `fortress-vault-backend/API_REFERENCE.md` for complete API documentation.
 
+## Admin Transaction Data Generator
+
+For testing, demo environments, or backfilling account activity, admin users can generate synthetic
+customer transactions directly from the admin transaction management page.
+
+- Endpoint: `POST /api/admin/transactions/generate/`
+- Inputs: `user_identifier`, `date_from`, `date_to`, and `transactions_per_day`
+- Behavior: creates realistic mixes of buy/sell/deposit/withdrawal/storage-fee transactions
+
+This tool is intended for controlled admin use only and requires admin authentication.
+
 ## Tech Stack
 
 ### Frontend

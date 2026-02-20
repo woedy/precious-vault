@@ -120,7 +120,7 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Channels (WebSocket)
   channels:
@@ -158,6 +158,20 @@ services:
     environment:
       - VITE_API_URL=${VITE_API_URL}
       - VITE_WS_URL=${VITE_WS_URL}
+    depends_on:
+      - backend
+    networks:
+      - fortress-vault-network
+
+
+  # Admin Frontend
+  admin-frontend:
+    build:
+      context: ./fortress-vault-admin
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - VITE_API_URL=${ADMIN_VITE_API_URL:-${VITE_API_URL}}
     depends_on:
       - backend
     networks:
