@@ -2,9 +2,11 @@ import axios from 'axios';
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { toast } from 'sonner';
 
+const apiRoot = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || '/api';
+
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: '/api/admin',
+  baseURL: `${apiRoot}/admin`,
   headers: {
     'Content-Type': 'application/json',
   },

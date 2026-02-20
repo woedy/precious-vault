@@ -13,6 +13,7 @@ const navLinks = [
   { name: 'Vaults', path: '/vaults' },
   { name: 'Convert', path: '/convert' },
   { name: 'Activity', path: '/activity' },
+  { name: 'Support Chat', path: '/support/chat' },
 ];
 
 export function Navbar() {

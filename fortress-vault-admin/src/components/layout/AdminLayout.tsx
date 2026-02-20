@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  MessageSquare,
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -32,6 +33,7 @@ const navItems: NavItem[] = [
   { name: 'Transactions', path: '/transactions', icon: Receipt },
   { name: 'Users', path: '/users', icon: Users },
   { name: 'Deliveries', path: '/deliveries', icon: Package },
+  { name: 'Support Chat', path: '/chat', icon: MessageSquare },
   { name: 'Metal Prices', path: '/metal-prices', icon: Coins },
   { name: 'Audit Log', path: '/audit-log', icon: FileText },
   { name: 'Dev Emails', path: '/dev-emails', icon: Mail },

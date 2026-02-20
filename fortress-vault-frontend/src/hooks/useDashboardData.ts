@@ -52,7 +52,7 @@ export interface DashboardData {
 
 export interface Transaction {
     id: string;
-    transaction_type: 'buy' | 'sell' | 'convert' | 'deposit' | 'withdraw';
+    transaction_type: 'buy' | 'sell' | 'convert' | 'deposit' | 'withdrawal' | 'storage_fee';
     metal: { symbol: string; name: string } | null;
     amount_oz: number;
     price_per_oz: number;
@@ -76,8 +76,14 @@ export const useTransactions = () => {
     return useQuery({
         queryKey: ['transactions'],
         queryFn: async () => {
-            const response = await api.get<Transaction[]>('/trading/transactions/');
-            return response.data;
+            const response = await api.get<Transaction[] | PaginatedResponse<Transaction>>('/trading/transactions/');
+            const data = response.data;
+
+            if (Array.isArray(data)) {
+                return data;
+            }
+
+            return data.results;
         },
     });
 };

@@ -1,5 +1,5 @@
 import { Layout } from '@/components/layout/Layout';
-import { useTransactions } from '@/hooks/useDashboardData';
+import { Transaction, useTransactions } from '@/hooks/useDashboardData';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
@@ -15,8 +15,8 @@ import { ArrowUpRight, ArrowDownRight, Building2, Banknote, Wallet, Loader2 } fr
 const typeConfig: Record<string, { icon: any; color: string; label: string }> = {
   buy: { icon: ArrowDownRight, color: 'text-success', label: 'Buy' },
   sell: { icon: ArrowUpRight, color: 'text-destructive', label: 'Sell' },
-  storage: { icon: Building2, color: 'text-muted-foreground', label: 'Storage' },
-  withdraw: { icon: Banknote, color: 'text-primary', label: 'Withdraw' }, // Changed to 'withdraw' to match API
+  storage_fee: { icon: Building2, color: 'text-muted-foreground', label: 'Storage Fee' },
+  withdrawal: { icon: Banknote, color: 'text-primary', label: 'Withdrawal' },
   convert: { icon: ArrowUpRight, color: 'text-primary', label: 'Convert' },
   deposit: { icon: Wallet, color: 'text-success', label: 'Deposit' },
 };
@@ -34,7 +34,9 @@ export default function ActivityPage() {
     );
   }
 
-  const txns = Array.isArray(transactions) ? transactions : [];
+  const txns: Transaction[] = Array.isArray(transactions) ? transactions : [];
+
+  const formatAmount = (value: number) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
   return (
     <Layout>
@@ -66,7 +68,7 @@ export default function ActivityPage() {
           </div>
           <div className="card-premium text-center">
             <p className="text-2xl font-bold text-primary">
-              {txns.filter(t => t.transaction_type === 'withdraw').length}
+              {txns.filter(t => t.transaction_type === 'withdrawal').length}
             </p>
             <p className="text-sm text-muted-foreground">Cash Outs</p>
           </div>
@@ -101,7 +103,7 @@ export default function ActivityPage() {
                     <TableCell>{txn.metal?.name || '-'}</TableCell>
                     <TableCell>{txn.amount_oz ? `${txn.amount_oz} oz` : '-'}</TableCell>
                     <TableCell className="text-right font-medium">
-                      ${txn.total_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${formatAmount(txn.total_value)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Badge
@@ -158,7 +160,7 @@ export default function ActivityPage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Value</span>
                     <span className="font-medium text-foreground">
-                      ${txn.total_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      ${formatAmount(txn.total_value)}
                     </span>
                   </div>
                   <div className="flex justify-between">

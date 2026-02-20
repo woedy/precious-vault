@@ -10,11 +10,14 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Count, Sum, Q
 from django.db import transaction as db_transaction
 from decimal import Decimal
+import random
 from datetime import datetime, timedelta
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from celery.result import AsyncResult
 
-from users.models import User, Wallet
-from trading.models import Transaction, Shipment, ShipmentEvent, PortfolioItem, Metal, Product
+from users.models import User, Wallet, ChatThread, ChatMessage
+from trading.models import Transaction, Shipment, ShipmentEvent, ShipmentWorkflowStage, PortfolioItem, Metal, Product
 from .models import AdminAction, TransactionNote, DevEmail, PlatformSettings
 from .serializers import (
     AdminKYCSerializer, AdminUserListSerializer, AdminUserDetailSerializer,
@@ -22,10 +25,12 @@ from .serializers import (
     TransactionNoteSerializer, AdminActionSerializer,
     DevEmailListSerializer, DevEmailDetailSerializer,
     AdminProductSerializer, AdminMetalSerializer,
-    AdminShipmentSerializer, ShipmentEventSerializer, DeliveryHistorySerializer
+    AdminShipmentSerializer, ShipmentEventSerializer, DeliveryHistorySerializer,
+    AdminChatThreadSerializer, AdminChatMessageSerializer
 )
 from .permissions import IsAdminUser
 from .pagination import AdminPagination
+from users.consumers import broadcast_chat_message
 from .utils import (
     log_admin_action, send_kyc_decision_email,
     send_account_status_email, send_shipment_update_email
@@ -850,6 +855,118 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+    @action(detail=False, methods=['post'])
+    def generate(self, request):
+        """Generate realistic synthetic transactions for a customer and date range."""
+        user_identifier = (request.data.get('user_identifier') or '').strip()
+        date_from = parse_date((request.data.get('date_from') or '').strip())
+        date_to = parse_date((request.data.get('date_to') or '').strip())
+        try:
+            per_day = int(request.data.get('transactions_per_day') or 2)
+        except (TypeError, ValueError):
+            return Response({'error': 'transactions_per_day must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user_identifier:
+            return Response({'error': 'user_identifier is required (email or user id)'}, status=status.HTTP_400_BAD_REQUEST)
+        if not date_from or not date_to:
+            return Response({'error': 'date_from and date_to are required (YYYY-MM-DD)'}, status=status.HTTP_400_BAD_REQUEST)
+        if date_from > date_to:
+            return Response({'error': 'date_from cannot be after date_to'}, status=status.HTTP_400_BAD_REQUEST)
+        if per_day < 1 or per_day > 10:
+            return Response({'error': 'transactions_per_day must be between 1 and 10'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(Q(email__iexact=user_identifier) | Q(id__iexact=user_identifier)).first()
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        metals = list(Metal.objects.all())
+        if not metals:
+            return Response({'error': 'No metals available to generate transactions'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tx_types = [
+            Transaction.TransactionType.BUY,
+            Transaction.TransactionType.SELL,
+            Transaction.TransactionType.DEPOSIT,
+            Transaction.TransactionType.WITHDRAWAL,
+            Transaction.TransactionType.STORAGE_FEE,
+        ]
+
+        created_ids = []
+        current = date_from
+
+        with db_transaction.atomic():
+            while current <= date_to:
+                for _ in range(random.randint(1, per_day)):
+                    tx_type = random.choices(
+                        tx_types,
+                        weights=[35, 20, 20, 10, 15],
+                        k=1
+                    )[0]
+
+                    metal = random.choice(metals) if tx_type in [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL] else None
+                    amount_oz = None
+                    price_per_oz = None
+                    fees = Decimal('0.00')
+                    total_value = Decimal('0.00')
+
+                    if tx_type in [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL]:
+                        amount_oz = Decimal(str(round(random.uniform(0.10, 8.00), 4)))
+                        market_price = Decimal(str(metal.current_price)) if metal else Decimal('0')
+                        variance = Decimal(str(round(random.uniform(-0.03, 0.05), 4)))
+                        price_per_oz = (market_price * (Decimal('1.0') + variance)).quantize(Decimal('0.01'))
+                        gross = (amount_oz * price_per_oz).quantize(Decimal('0.01'))
+                        fees = (gross * Decimal('0.015')).quantize(Decimal('0.01'))
+                        tax = (gross * Decimal('0.002')).quantize(Decimal('0.01'))
+                        total_value = (gross + fees + tax).quantize(Decimal('0.01')) if tx_type == Transaction.TransactionType.BUY else (gross - fees).quantize(Decimal('0.01'))
+                    elif tx_type == Transaction.TransactionType.DEPOSIT:
+                        total_value = Decimal(str(round(random.uniform(500, 20000), 2))).quantize(Decimal('0.01'))
+                    elif tx_type == Transaction.TransactionType.WITHDRAWAL:
+                        total_value = Decimal(str(round(random.uniform(200, 8000), 2))).quantize(Decimal('0.01'))
+                        fees = (total_value * Decimal('0.005')).quantize(Decimal('0.01'))
+                    else:  # storage_fee
+                        total_value = Decimal(str(round(random.uniform(5, 120), 2))).quantize(Decimal('0.01'))
+
+                    tx = Transaction.objects.create(
+                        user=user,
+                        transaction_type=tx_type,
+                        metal=metal,
+                        amount_oz=amount_oz,
+                        price_per_oz=price_per_oz,
+                        total_value=total_value,
+                        fees=fees,
+                        status=Transaction.Status.COMPLETED,
+                    )
+
+                    # force timestamp within requested range
+                    random_second = random.randint(0, 86399)
+                    ts = datetime.combine(current, datetime.min.time()) + timedelta(seconds=random_second)
+                    Transaction.objects.filter(id=tx.id).update(created_at=timezone.make_aware(ts))
+                    created_ids.append(str(tx.id))
+
+                current = current + timedelta(days=1)
+
+            log_admin_action(
+                admin_user=request.user,
+                action_type='generate_transactions',
+                target_type='user',
+                target_id=user.id,
+                details={
+                    'user_email': user.email,
+                    'date_from': str(date_from),
+                    'date_to': str(date_to),
+                    'transactions_per_day': per_day,
+                    'generated_count': len(created_ids)
+                }
+            )
+
+        return Response({
+            'message': 'Synthetic transactions generated successfully',
+            'user_email': user.email,
+            'generated_count': len(created_ids),
+            'transaction_ids': created_ids,
+        }, status=status.HTTP_201_CREATED)
+
+
 class AdminShipmentViewSet(viewsets.ModelViewSet):
     """Shipment management endpoints"""
     
@@ -863,8 +980,125 @@ class AdminShipmentViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
     
     def get_queryset(self):
-        return Shipment.objects.select_related('user').prefetch_related('items', 'events')
+        return Shipment.objects.select_related('user').prefetch_related('items', 'events', 'workflow_stages')
     
+    def _get_active_stage(self, delivery):
+        return delivery.workflow_stages.filter(status=ShipmentWorkflowStage.StageStatus.IN_PROGRESS).order_by('stage_order').first()
+
+    def _ensure_workflow(self, delivery):
+        if not delivery.workflow_stages.exists():
+            delivery.initialize_workflow()
+
+    @action(detail=True, methods=['post'])
+    def block_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+        reason = (request.data.get('reason') or '').strip()
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not reason:
+            return Response({'error': 'reason is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = True
+        stage.blocked_reason = reason
+        stage.blocked_at = timezone.now()
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin blocked workflow stage '{stage.name}': {reason}",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage blocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def unblock_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = False
+        stage.blocked_reason = ''
+        stage.blocked_at = None
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin unblocked workflow stage '{stage.name}'",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage unblocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def advance_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+
+        active_stage = self._get_active_stage(delivery)
+        if not active_stage:
+            return Response({'error': 'No active stage found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.is_blocked:
+            return Response({'error': 'Cannot advance while active stage is blocked'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.requires_customer_action and not active_stage.customer_action_completed:
+            return Response({'error': 'Customer action is required before advancing this stage'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            active_stage.status = ShipmentWorkflowStage.StageStatus.COMPLETED
+            active_stage.completed_at = timezone.now()
+            active_stage.save(update_fields=['status', 'completed_at', 'updated_at'])
+
+            next_stage = delivery.workflow_stages.filter(stage_order__gt=active_stage.stage_order).order_by('stage_order').first()
+            status_map = {
+                'packaging': Shipment.Status.PREPARING,
+                'in_transit': Shipment.Status.IN_TRANSIT,
+                'out_for_delivery': Shipment.Status.OUT_FOR_DELIVERY,
+                'delivery_completed': Shipment.Status.DELIVERED,
+            }
+
+            if next_stage:
+                next_stage.status = ShipmentWorkflowStage.StageStatus.IN_PROGRESS
+                next_stage.save(update_fields=['status', 'updated_at'])
+                mapped_status = status_map.get(next_stage.code)
+            else:
+                mapped_status = Shipment.Status.DELIVERED
+
+            if mapped_status:
+                delivery.status = mapped_status
+                delivery.save(update_fields=['status', 'updated_at'])
+
+            ShipmentEvent.objects.create(
+                shipment=delivery,
+                status=delivery.status,
+                description=f"Workflow advanced from '{active_stage.name}' to '{next_stage.name if next_stage else 'completed'}'",
+                location=request.data.get('location') or 'Admin Control'
+            )
+
+            if delivery.status == Shipment.Status.DELIVERED:
+                delivery.items.update(status=PortfolioItem.Status.DELIVERED)
+            elif delivery.status in [Shipment.Status.SHIPPED, Shipment.Status.IN_TRANSIT, Shipment.Status.OUT_FOR_DELIVERY, Shipment.Status.PREPARING]:
+                delivery.items.update(status=PortfolioItem.Status.IN_TRANSIT)
+
+        return Response({'message': 'Workflow stage advanced successfully', 'delivery': self.get_serializer(delivery).data})
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update shipment status"""
@@ -937,6 +1171,59 @@ class AdminShipmentViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+
+
+class AdminChatViewSet(viewsets.ReadOnlyModelViewSet):
+    """Admin support chat management."""
+
+    permission_classes = [IsAdminUser]
+    serializer_class = AdminChatThreadSerializer
+    queryset = ChatThread.objects.select_related('customer', 'assigned_admin').prefetch_related('messages')
+    pagination_class = AdminPagination
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['customer__email', 'customer__first_name', 'customer__last_name', 'subject']
+    ordering_fields = ['updated_at', 'created_at', 'status']
+    ordering = ['-updated_at']
+
+    @action(detail=True, methods=['get'])
+    def messages(self, request, pk=None):
+        thread = get_object_or_404(self.get_queryset(), pk=pk)
+        messages = thread.messages.select_related('sender').all()
+        thread.messages.filter(sender=thread.customer, is_read=False).update(is_read=True)
+        serializer = AdminChatMessageSerializer(messages, many=True)
+        return Response({'thread_id': str(thread.id), 'messages': serializer.data})
+
+    @action(detail=True, methods=['post'])
+    def send(self, request, pk=None):
+        thread = get_object_or_404(self.get_queryset(), pk=pk)
+        body = (request.data.get('body') or '').strip()
+        if not body:
+            return Response({'error': 'body is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not thread.assigned_admin:
+            thread.assigned_admin = request.user
+            thread.save(update_fields=['assigned_admin', 'updated_at'])
+
+        message = ChatMessage.objects.create(thread=thread, sender=request.user, body=body)
+        payload = AdminChatMessageSerializer(message).data
+        broadcast_chat_message(thread.id, payload)
+        return Response({'message': 'Message sent', 'data': payload}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        thread = get_object_or_404(self.get_queryset(), pk=pk)
+        thread.assigned_admin = request.user
+        thread.save(update_fields=['assigned_admin', 'updated_at'])
+        return Response({'message': 'Thread assigned'})
+
+    @action(detail=True, methods=['post'])
+    def close(self, request, pk=None):
+        thread = get_object_or_404(self.get_queryset(), pk=pk)
+        thread.status = ChatThread.Status.CLOSED
+        thread.save(update_fields=['status', 'updated_at'])
+        return Response({'message': 'Thread closed'})
+
+
 class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
     """Delivery management endpoints for admin"""
     
@@ -951,7 +1238,7 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         """Get shipments with filtering"""
-        queryset = Shipment.objects.select_related('user').prefetch_related('items', 'events')
+        queryset = Shipment.objects.select_related('user').prefetch_related('items', 'events', 'workflow_stages')
         
         # Filter by status
         status_filter = self.request.query_params.get('status')
@@ -1014,10 +1301,128 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
             'history': serializer.data
         })
     
+    def _get_active_stage(self, delivery):
+        return delivery.workflow_stages.filter(status=ShipmentWorkflowStage.StageStatus.IN_PROGRESS).order_by('stage_order').first()
+
+    def _ensure_workflow(self, delivery):
+        if not delivery.workflow_stages.exists():
+            delivery.initialize_workflow()
+
+    @action(detail=True, methods=['post'])
+    def block_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+        reason = (request.data.get('reason') or '').strip()
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not reason:
+            return Response({'error': 'reason is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = True
+        stage.blocked_reason = reason
+        stage.blocked_at = timezone.now()
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin blocked workflow stage '{stage.name}': {reason}",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage blocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def unblock_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+        stage_code = request.data.get('stage_code')
+
+        if not stage_code:
+            return Response({'error': 'stage_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = delivery.workflow_stages.filter(code=stage_code).first()
+        if not stage:
+            return Response({'error': 'Invalid stage_code for this shipment'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage.is_blocked = False
+        stage.blocked_reason = ''
+        stage.blocked_at = None
+        stage.save(update_fields=['is_blocked', 'blocked_reason', 'blocked_at', 'updated_at'])
+
+        ShipmentEvent.objects.create(
+            shipment=delivery,
+            status=delivery.status,
+            description=f"Admin unblocked workflow stage '{stage.name}'",
+            location='Admin Control'
+        )
+
+        return Response({'message': 'Stage unblocked successfully', 'delivery': self.get_serializer(delivery).data})
+
+    @action(detail=True, methods=['post'])
+    def advance_stage(self, request, pk=None):
+        delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
+
+        active_stage = self._get_active_stage(delivery)
+        if not active_stage:
+            return Response({'error': 'No active stage found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.is_blocked:
+            return Response({'error': 'Cannot advance while active stage is blocked'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if active_stage.requires_customer_action and not active_stage.customer_action_completed:
+            return Response({'error': 'Customer action is required before advancing this stage'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            active_stage.status = ShipmentWorkflowStage.StageStatus.COMPLETED
+            active_stage.completed_at = timezone.now()
+            active_stage.save(update_fields=['status', 'completed_at', 'updated_at'])
+
+            next_stage = delivery.workflow_stages.filter(stage_order__gt=active_stage.stage_order).order_by('stage_order').first()
+            status_map = {
+                'packaging': Shipment.Status.PREPARING,
+                'in_transit': Shipment.Status.IN_TRANSIT,
+                'out_for_delivery': Shipment.Status.OUT_FOR_DELIVERY,
+                'delivery_completed': Shipment.Status.DELIVERED,
+            }
+
+            if next_stage:
+                next_stage.status = ShipmentWorkflowStage.StageStatus.IN_PROGRESS
+                next_stage.save(update_fields=['status', 'updated_at'])
+                mapped_status = status_map.get(next_stage.code)
+            else:
+                mapped_status = Shipment.Status.DELIVERED
+
+            if mapped_status:
+                delivery.status = mapped_status
+                delivery.save(update_fields=['status', 'updated_at'])
+
+            ShipmentEvent.objects.create(
+                shipment=delivery,
+                status=delivery.status,
+                description=f"Workflow advanced from '{active_stage.name}' to '{next_stage.name if next_stage else 'completed'}'",
+                location=request.data.get('location') or 'Admin Control'
+            )
+
+            if delivery.status == Shipment.Status.DELIVERED:
+                delivery.items.update(status=PortfolioItem.Status.DELIVERED)
+            elif delivery.status in [Shipment.Status.SHIPPED, Shipment.Status.IN_TRANSIT, Shipment.Status.OUT_FOR_DELIVERY, Shipment.Status.PREPARING]:
+                delivery.items.update(status=PortfolioItem.Status.IN_TRANSIT)
+
+        return Response({'message': 'Workflow stage advanced successfully', 'delivery': self.get_serializer(delivery).data})
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update delivery status and create history entry"""
         delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
         new_status = request.data.get('status')
         description = request.data.get('description', '')
         location = request.data.get('location', '')
@@ -1087,6 +1492,7 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
     def assign_carrier(self, request, pk=None):
         """Assign carrier and tracking number to delivery"""
         delivery = get_object_or_404(Shipment, pk=pk)
+        self._ensure_workflow(delivery)
         carrier = request.data.get('carrier')
         tracking_number = request.data.get('tracking_number')
         
