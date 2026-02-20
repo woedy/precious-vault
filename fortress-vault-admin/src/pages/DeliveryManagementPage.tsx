@@ -46,7 +46,7 @@ const DeliveryManagementPage: React.FC = () => {
   const stats = useMemo(() => {
     return {
       total: deliveries.length,
-      processing: deliveries.filter(d => d.status === 'processing').length,
+      preparing: deliveries.filter(d => d.status === 'preparing').length,
       shipped: deliveries.filter(d => d.status === 'shipped').length,
       delivered: deliveries.filter(d => d.status === 'delivered').length,
     };
@@ -153,8 +153,8 @@ const DeliveryManagementPage: React.FC = () => {
           <p className="text-sm text-muted-foreground mt-1">Total Deliveries</p>
         </div>
         <div className="rounded-lg border bg-card p-6">
-          <div className="text-2xl font-bold">{stats.processing}</div>
-          <p className="text-sm text-muted-foreground">Processing</p>
+          <div className="text-2xl font-bold">{stats.preparing}</div>
+          <p className="text-sm text-muted-foreground">Preparing</p>
         </div>
         <div className="rounded-lg border bg-card p-6">
           <div className="text-2xl font-bold">{stats.shipped}</div>
@@ -211,10 +211,13 @@ const DeliveryManagementPage: React.FC = () => {
                 onChange={(e) => handleFilterChange('status', e.target.value)}
               >
                 <option value="">All Statuses</option>
-                <option value="processing">Processing</option>
+                <option value="requested">Requested</option>
+                <option value="preparing">Preparing</option>
                 <option value="shipped">Shipped</option>
-                <option value="customs">Customs</option>
+                <option value="in_transit">In Transit</option>
+                <option value="out_for_delivery">Out for Delivery</option>
                 <option value="delivered">Delivered</option>
+                <option value="failed">Failed</option>
               </select>
             </div>
 

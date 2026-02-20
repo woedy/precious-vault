@@ -35,7 +35,7 @@ services:
       context: ./fortress-vault-backend
       dockerfile: Dockerfile
     restart: always
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
+    command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
     environment:
       - DEBUG=False
       - SECRET_KEY=${SECRET_KEY}
@@ -120,7 +120,7 @@ services:
       - postgres
       - redis
     networks:
-      - precious-vault-network
+      - fortress-vault-network
 
   # Channels (WebSocket)
   channels:
@@ -158,6 +158,20 @@ services:
     environment:
       - VITE_API_URL=${VITE_API_URL}
       - VITE_WS_URL=${VITE_WS_URL}
+    depends_on:
+      - backend
+    networks:
+      - fortress-vault-network
+
+
+  # Admin Frontend
+  admin-frontend:
+    build:
+      context: ./fortress-vault-admin
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - VITE_API_URL=${ADMIN_VITE_API_URL:-${VITE_API_URL}}
     depends_on:
       - backend
     networks:

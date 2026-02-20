@@ -1,107 +1,148 @@
+import { useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Truck, Package, Clock, Loader2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Truck, Clock, Loader2, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useShipments } from '@/hooks/useShipments';
+import { useCompleteShipmentStageAction, useShipments, type ShipmentWorkflowStage } from '@/hooks/useShipments';
+
+const stageBadgeVariant = (stage: ShipmentWorkflowStage): 'default' | 'secondary' | 'destructive' => {
+  if (stage.is_blocked) return 'destructive';
+  if (stage.status === 'completed') return 'default';
+  return 'secondary';
+};
 
 export default function TrackingPage() {
-    const navigate = useNavigate();
-    const { data: deliveries, isLoading } = useShipments();
+  const navigate = useNavigate();
+  const { data: deliveries, isLoading } = useShipments();
+  const completeStageAction = useCompleteShipmentStageAction();
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
-    if (isLoading) {
-        return (
-            <Layout>
-                <div className="container mx-auto px-4 py-8 flex flex-col items-center justify-center min-h-[400px]">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
-                    <p className="text-muted-foreground italic">Fetching shipment updates...</p>
-                </div>
-            </Layout>
-        );
-    }
-
+  if (isLoading) {
     return (
-        <Layout>
-            <div className="container mx-auto px-4 py-8">
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold mb-2">Shipment Tracking</h1>
-                    <p className="text-muted-foreground">Monitor the status of your physical deliveries.</p>
-                </div>
-
-                {!deliveries || deliveries.length === 0 ? (
-                    <div className="text-center py-16 bg-muted/30 rounded-xl">
-                        <Truck className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                        <h3 className="text-lg font-semibold">No Active Shipments</h3>
-                        <p className="text-muted-foreground mb-6">You have no assets currently in transit.</p>
-                        <Button onClick={() => navigate('/vaults')}>View Vault Holdings</Button>
-                    </div>
-                ) : (
-                    <div className="space-y-6">
-                        {deliveries.map(delivery => (
-                            <Card key={delivery.id} className="overflow-hidden">
-                                <div className="bg-muted/50 p-4 border-b flex justify-between items-center">
-                                    <div>
-                                        <span className="font-mono text-sm text-muted-foreground mr-2">
-                                            #{delivery.tracking_number || 'PENDING'}
-                                        </span>
-                                        <Badge variant={delivery.status === 'delivered' ? 'default' : 'secondary'} className="capitalize">
-                                            {delivery.status.replace(/_/g, ' ')}
-                                        </Badge>
-                                    </div>
-                                    <span className="text-sm font-medium">
-                                        Est. Arrival: {delivery.estimated_delivery ? new Date(delivery.estimated_delivery).toLocaleDateString() : 'TBD'}
-                                    </span>
-                                </div>
-                                <CardContent className="p-0">
-                                    <div className="grid grid-cols-1 md:grid-cols-3">
-                                        {/* Map Area (Mock) */}
-                                        <div className="md:col-span-2 bg-slate-100 min-h-[300px] relative p-6 flex items-center justify-center">
-                                            <div className="absolute inset-0 opacity-10"
-                                                style={{ backgroundImage: 'radial-gradient(circle, #000 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-
-                                            {/* Route Mock Visualization */}
-                                            <div className="relative w-full max-w-md h-2 bg-slate-300 rounded-full overflow-hidden">
-                                                <div className="absolute top-0 left-0 h-full bg-primary w-1/3 animate-pulse" />
-                                            </div>
-                                            <div className="absolute flex justify-between w-full max-w-md -mt-3 px-4">
-                                                <div className="w-4 h-4 rounded-full bg-primary ring-4 ring-white" />
-                                                <div className="w-4 h-4 rounded-full bg-primary ring-4 ring-white" />
-                                                <div className="w-4 h-4 rounded-full bg-slate-300 ring-4 ring-white" />
-                                            </div>
-                                            <div className="absolute flex justify-between w-full max-w-md mt-6 px-0 text-xs font-bold text-slate-600">
-                                                <span>LONDON</span>
-                                                <span>TRANSIT</span>
-                                                <span className="uppercase">{delivery.destination_address.city}</span>
-                                            </div>
-                                        </div>
-
-                                        {/* Status Timeline */}
-                                        <div className="p-6 border-l bg-card">
-                                            <h3 className="font-semibold mb-4 flex items-center gap-2">
-                                                <Clock className="w-4 h-4" /> Latest Updates
-                                            </h3>
-                                            <div className="space-y-6 relative pl-2">
-                                                <div className="absolute top-2 bottom-2 left-[5px] w-[1px] bg-border" />
-
-                                                {delivery.events.map((event, i) => (
-                                                    <div key={i} className="relative pl-6">
-                                                        <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-background" />
-                                                        <p className="text-sm font-medium">{event.description}</p>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            {new Date(event.timestamp).toLocaleDateString()} {new Date(event.timestamp).toLocaleTimeString()}
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </Layout>
+      <Layout>
+        <div className="container mx-auto px-4 py-8 flex flex-col items-center justify-center min-h-[400px]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+          <p className="text-muted-foreground italic">Fetching shipment updates...</p>
+        </div>
+      </Layout>
     );
+  }
+
+  return (
+    <Layout>
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">Shipment Tracking</h1>
+          <p className="text-muted-foreground">Monitor each delivery stage and resolve required actions.</p>
+        </div>
+
+        {!deliveries || deliveries.length === 0 ? (
+          <div className="text-center py-16 bg-muted/30 rounded-xl">
+            <Truck className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold">No Active Shipments</h3>
+            <p className="text-muted-foreground mb-6">You have no assets currently in transit.</p>
+            <Button onClick={() => navigate('/vaults')}>View Vault Holdings</Button>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {deliveries.map((delivery) => {
+              const activeStage = delivery.workflow_stages?.find((stage) => stage.status === 'in_progress');
+
+              return (
+                <Card key={delivery.id} className="overflow-hidden">
+                  <div className="bg-muted/50 p-4 border-b flex justify-between items-center">
+                    <div>
+                      <span className="font-mono text-sm text-muted-foreground mr-2">
+                        #{delivery.tracking_number || 'PENDING'}
+                      </span>
+                      <Badge variant={delivery.status === 'delivered' ? 'default' : 'secondary'} className="capitalize">
+                        {delivery.status.replace(/_/g, ' ')}
+                      </Badge>
+                    </div>
+                    <span className="text-sm font-medium">
+                      Est. Arrival:{' '}
+                      {delivery.estimated_delivery ? new Date(delivery.estimated_delivery).toLocaleDateString() : 'TBD'}
+                    </span>
+                  </div>
+
+                  <CardContent className="p-6 space-y-6">
+                    {!!activeStage && (
+                      <div className="rounded-lg border p-4 bg-muted/20">
+                        <p className="text-sm font-semibold mb-2">Active Stage</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={stageBadgeVariant(activeStage)}>{activeStage.name}</Badge>
+                          {activeStage.requires_customer_action && !activeStage.customer_action_completed && (
+                            <Badge variant="secondary">Customer Action Required</Badge>
+                          )}
+                          {activeStage.is_blocked && (
+                            <Badge variant="destructive">Blocked by Admin</Badge>
+                          )}
+                        </div>
+
+                        {activeStage.is_blocked && (
+                          <p className="text-sm text-destructive mt-2 flex items-center gap-2">
+                            <Lock className="h-4 w-4" />
+                            {activeStage.blocked_reason || 'This stage is currently blocked by admin.'}
+                          </p>
+                        )}
+
+                        {activeStage.requires_customer_action && !activeStage.customer_action_completed && !activeStage.is_blocked && (
+                          <div className="mt-3 flex flex-col md:flex-row gap-2">
+                            <Input
+                              value={notes[delivery.id] || ''}
+                              onChange={(e) => setNotes((prev) => ({ ...prev, [delivery.id]: e.target.value }))}
+                              placeholder="Describe how you resolved this stage (e.g. paperwork submitted)"
+                            />
+                            <Button
+                              disabled={completeStageAction.isPending || !(notes[delivery.id] || '').trim()}
+                              onClick={() =>
+                                completeStageAction.mutate({
+                                  shipmentId: delivery.id,
+                                  action_note: (notes[delivery.id] || '').trim(),
+                                })
+                              }
+                            >
+                              Submit Resolution
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <CardHeader className="px-0 pt-0">
+                        <CardTitle className="text-base">Workflow Stages</CardTitle>
+                      </CardHeader>
+                      <div className="space-y-3">
+                        {delivery.workflow_stages?.map((stage) => (
+                          <div key={stage.id} className="border rounded-md p-3 flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-sm">{stage.name}</p>
+                              <p className="text-xs text-muted-foreground capitalize">{stage.status.replace('_', ' ')}</p>
+                              {stage.customer_action_completed && stage.customer_action_note && (
+                                <p className="text-xs mt-1 text-emerald-700">Customer note: {stage.customer_action_note}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {stage.requires_customer_action && <Clock className="h-4 w-4 text-muted-foreground" />}
+                              {stage.is_blocked && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                              {stage.status === 'completed' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                              <Badge variant={stageBadgeVariant(stage)}>{stage.is_blocked ? 'Blocked' : stage.status}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
 }
