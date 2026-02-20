@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import axios from 'axios';
 import { setTokens, clearTokens, isAuthenticated, getUserFromToken } from '@/lib/auth';
 
+const apiRoot = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || '/api';
+
 interface User {
   id: number;
   email: string;
@@ -55,7 +57,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = async (email: string, password: string): Promise<void> => {
     try {
       // Call the JWT create endpoint
-      const response = await axios.post('/api/auth/jwt/create/', {
+      const response = await axios.post(`${apiRoot}/auth/jwt/create/`, {
         email,
         password,
       });
