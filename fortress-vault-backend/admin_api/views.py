@@ -10,8 +10,10 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Count, Sum, Q
 from django.db import transaction as db_transaction
 from decimal import Decimal
+import random
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from celery.result import AsyncResult
 
 from users.models import User, Wallet, ChatThread, ChatMessage
@@ -851,6 +853,118 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         
         serializer = TransactionNoteSerializer(note)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+    @action(detail=False, methods=['post'])
+    def generate(self, request):
+        """Generate realistic synthetic transactions for a customer and date range."""
+        user_identifier = (request.data.get('user_identifier') or '').strip()
+        date_from = parse_date((request.data.get('date_from') or '').strip())
+        date_to = parse_date((request.data.get('date_to') or '').strip())
+        try:
+            per_day = int(request.data.get('transactions_per_day') or 2)
+        except (TypeError, ValueError):
+            return Response({'error': 'transactions_per_day must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user_identifier:
+            return Response({'error': 'user_identifier is required (email or user id)'}, status=status.HTTP_400_BAD_REQUEST)
+        if not date_from or not date_to:
+            return Response({'error': 'date_from and date_to are required (YYYY-MM-DD)'}, status=status.HTTP_400_BAD_REQUEST)
+        if date_from > date_to:
+            return Response({'error': 'date_from cannot be after date_to'}, status=status.HTTP_400_BAD_REQUEST)
+        if per_day < 1 or per_day > 10:
+            return Response({'error': 'transactions_per_day must be between 1 and 10'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(Q(email__iexact=user_identifier) | Q(id__iexact=user_identifier)).first()
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        metals = list(Metal.objects.all())
+        if not metals:
+            return Response({'error': 'No metals available to generate transactions'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tx_types = [
+            Transaction.TransactionType.BUY,
+            Transaction.TransactionType.SELL,
+            Transaction.TransactionType.DEPOSIT,
+            Transaction.TransactionType.WITHDRAWAL,
+            Transaction.TransactionType.STORAGE_FEE,
+        ]
+
+        created_ids = []
+        current = date_from
+
+        with db_transaction.atomic():
+            while current <= date_to:
+                for _ in range(random.randint(1, per_day)):
+                    tx_type = random.choices(
+                        tx_types,
+                        weights=[35, 20, 20, 10, 15],
+                        k=1
+                    )[0]
+
+                    metal = random.choice(metals) if tx_type in [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL] else None
+                    amount_oz = None
+                    price_per_oz = None
+                    fees = Decimal('0.00')
+                    total_value = Decimal('0.00')
+
+                    if tx_type in [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL]:
+                        amount_oz = Decimal(str(round(random.uniform(0.10, 8.00), 4)))
+                        market_price = Decimal(str(metal.current_price)) if metal else Decimal('0')
+                        variance = Decimal(str(round(random.uniform(-0.03, 0.05), 4)))
+                        price_per_oz = (market_price * (Decimal('1.0') + variance)).quantize(Decimal('0.01'))
+                        gross = (amount_oz * price_per_oz).quantize(Decimal('0.01'))
+                        fees = (gross * Decimal('0.015')).quantize(Decimal('0.01'))
+                        tax = (gross * Decimal('0.002')).quantize(Decimal('0.01'))
+                        total_value = (gross + fees + tax).quantize(Decimal('0.01')) if tx_type == Transaction.TransactionType.BUY else (gross - fees).quantize(Decimal('0.01'))
+                    elif tx_type == Transaction.TransactionType.DEPOSIT:
+                        total_value = Decimal(str(round(random.uniform(500, 20000), 2))).quantize(Decimal('0.01'))
+                    elif tx_type == Transaction.TransactionType.WITHDRAWAL:
+                        total_value = Decimal(str(round(random.uniform(200, 8000), 2))).quantize(Decimal('0.01'))
+                        fees = (total_value * Decimal('0.005')).quantize(Decimal('0.01'))
+                    else:  # storage_fee
+                        total_value = Decimal(str(round(random.uniform(5, 120), 2))).quantize(Decimal('0.01'))
+
+                    tx = Transaction.objects.create(
+                        user=user,
+                        transaction_type=tx_type,
+                        metal=metal,
+                        amount_oz=amount_oz,
+                        price_per_oz=price_per_oz,
+                        total_value=total_value,
+                        fees=fees,
+                        status=Transaction.Status.COMPLETED,
+                    )
+
+                    # force timestamp within requested range
+                    random_second = random.randint(0, 86399)
+                    ts = datetime.combine(current, datetime.min.time()) + timedelta(seconds=random_second)
+                    Transaction.objects.filter(id=tx.id).update(created_at=timezone.make_aware(ts))
+                    created_ids.append(str(tx.id))
+
+                current = current + timedelta(days=1)
+
+            log_admin_action(
+                admin_user=request.user,
+                action_type='generate_transactions',
+                target_type='user',
+                target_id=user.id,
+                details={
+                    'user_email': user.email,
+                    'date_from': str(date_from),
+                    'date_to': str(date_to),
+                    'transactions_per_day': per_day,
+                    'generated_count': len(created_ids)
+                }
+            )
+
+        return Response({
+            'message': 'Synthetic transactions generated successfully',
+            'user_email': user.email,
+            'generated_count': len(created_ids),
+            'transaction_ids': created_ids,
+        }, status=status.HTTP_201_CREATED)
 
 
 class AdminShipmentViewSet(viewsets.ModelViewSet):

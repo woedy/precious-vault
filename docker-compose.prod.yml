@@ -163,6 +163,20 @@ services:
     networks:
       - fortress-vault-network
 
+
+  # Admin Frontend
+  admin-frontend:
+    build:
+      context: ./fortress-vault-admin
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - VITE_API_URL=${ADMIN_VITE_API_URL:-${VITE_API_URL}}
+    depends_on:
+      - backend
+    networks:
+      - fortress-vault-network
+
 volumes:
   postgres_data:
 

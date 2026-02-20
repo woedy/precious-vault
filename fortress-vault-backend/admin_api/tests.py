@@ -573,6 +573,39 @@ class TestTransactionManagementViewSet(TestCase):
         for transaction in results:
             self.assertEqual(transaction['transaction_type'], self.Transaction.TransactionType.BUY)
     
+    def test_generate_synthetic_transactions(self):
+        """Test admin can generate synthetic transaction history for customer"""
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(
+            '/api/admin/transactions/generate/',
+            {
+                'user_identifier': self.regular_user.email,
+                'date_from': '2026-01-01',
+                'date_to': '2026-01-03',
+                'transactions_per_day': 2,
+            },
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('generated_count', response.data)
+        self.assertGreater(response.data['generated_count'], 0)
+
+        generated = self.Transaction.objects.filter(
+            user=self.regular_user,
+            status=self.Transaction.Status.COMPLETED,
+            created_at__date__gte='2026-01-01',
+            created_at__date__lte='2026-01-03'
+        ).count()
+        self.assertGreater(generated, 0)
+
+    def test_generate_transactions_requires_valid_payload(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post('/api/admin/transactions/generate/', {'user_identifier': ''}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_non_admin_cannot_access_transactions(self):
         """Test that non-admin users cannot access transaction endpoints"""
         self.client.force_authenticate(user=self.regular_user)
