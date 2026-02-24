@@ -52,7 +52,7 @@ export interface DashboardData {
 
 export interface Transaction {
     id: string;
-    transaction_type: 'buy' | 'sell' | 'convert' | 'deposit' | 'withdrawal' | 'storage_fee';
+    transaction_type: 'buy' | 'sell' | 'convert' | 'deposit' | 'withdrawal' | 'storage_fee' | 'tax';
     metal: { symbol: string; name: string } | null;
     amount_oz: number;
     price_per_oz: number;
@@ -100,5 +100,23 @@ export const useMetals = () => {
             return data.results;
         },
         refetchInterval: 30000, // Refresh every 30s
+    });
+};
+
+
+export interface OutstandingDebtsResponse {
+    count: number;
+    total_due: number;
+    currency: string;
+    items: Transaction[];
+}
+
+export const useOutstandingDebts = () => {
+    return useQuery({
+        queryKey: ['outstanding-debts'],
+        queryFn: async () => {
+            const response = await api.get<OutstandingDebtsResponse>('/trading/transactions/outstanding_debts/');
+            return response.data;
+        },
     });
 };

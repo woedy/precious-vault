@@ -9,6 +9,14 @@ import { Label } from '@/components/ui/label';
 import { Shield, CheckCircle2, Lock, Upload, ArrowRight, Loader2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useVaults } from '@/hooks/useVaults';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 
 type Step = 'account' | 'identity' | 'security' | 'complete';
 
@@ -20,6 +28,7 @@ export default function OnboardingPage() {
     const navigate = useNavigate();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const { data: vaults } = useVaults();
 
     useEffect(() => {
         // Redirect if not verified
@@ -34,13 +43,17 @@ export default function OnboardingPage() {
         street: '',
         city: '',
         zip: '',
-        country: 'Switzerland'
+        country: 'Switzerland',
+        preferredVault: user?.preferredVault || ''
     });
 
     useEffect(() => {
-        if (user?.phoneNumber && !formData.phone) {
-            setFormData(prev => ({ ...prev, phone: user.phoneNumber || '' }));
-        }
+        if (!user) return;
+        setFormData(prev => ({
+            ...prev,
+            phone: prev.phone || user.phoneNumber || '',
+            preferredVault: prev.preferredVault || user.preferredVault || ''
+        }));
     }, [user]);
 
     const getProgress = () => {
@@ -89,7 +102,8 @@ export default function OnboardingPage() {
                 city: formData.city,
                 zip_code: formData.zip,
                 country: formData.country,
-                state: '' // Optional
+                state: '', // Optional
+                preferred_vault: formData.preferredVault || undefined
             });
 
             // Refresh auth state to get verified status
@@ -203,6 +217,29 @@ export default function OnboardingPage() {
                                         value={formData.country}
                                         onChange={e => setFormData({ ...formData, country: e.target.value })}
                                     />
+                                </div>
+
+
+                                <div className="space-y-2 col-span-2">
+                                    <Label>Preferred Vault Location</Label>
+                                    <Select
+                                        value={formData.preferredVault}
+                                        onValueChange={(value) => setFormData({ ...formData, preferredVault: value })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select your preferred vault" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Array.isArray(vaults) && vaults.map((vault) => (
+                                                <SelectItem key={vault.id} value={vault.id}>
+                                                    <span className="flex items-center gap-2">
+                                                        <span>{vault.flag_emoji || '🌐'}</span>
+                                                        <span>{vault.city}, {vault.country}</span>
+                                                    </span>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
 

@@ -685,9 +685,9 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         if date_from:
-            queryset = queryset.filter(created_at__gte=date_from)
+            queryset = queryset.filter(created_at__date__gte=date_from)
         if date_to:
-            queryset = queryset.filter(created_at__lte=date_to)
+            queryset = queryset.filter(created_at__date__lte=date_to)
         
         # Filter by amount threshold
         amount_min = self.request.query_params.get('amount_min')
@@ -857,7 +857,7 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'])
     def generate(self, request):
-        """Generate realistic synthetic transactions for a customer and date range."""
+        """Generate synthetic transactions that remain cash/holdings consistent."""
         user_identifier = (request.data.get('user_identifier') or '').strip()
         date_from = parse_date((request.data.get('date_from') or '').strip())
         date_to = parse_date((request.data.get('date_to') or '').strip())
@@ -879,71 +879,168 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         if not user:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        wallet, _ = Wallet.objects.get_or_create(user=user)
         metals = list(Metal.objects.all())
         if not metals:
             return Response({'error': 'No metals available to generate transactions'}, status=status.HTTP_400_BAD_REQUEST)
 
-        tx_types = [
-            Transaction.TransactionType.BUY,
-            Transaction.TransactionType.SELL,
-            Transaction.TransactionType.DEPOSIT,
-            Transaction.TransactionType.WITHDRAWAL,
-            Transaction.TransactionType.STORAGE_FEE,
-        ]
+        holdings = {}
+        for item in PortfolioItem.objects.filter(user=user, status=PortfolioItem.Status.VAULTED).select_related('metal'):
+            symbol = item.metal.symbol
+            holdings[symbol] = holdings.get(symbol, Decimal('0')) + Decimal(str(item.weight_oz))
 
+        total_span_days = (date_to - date_from).days
+        inactivity_start = max(date_from, date_to - timedelta(days=365 * 5)) if total_span_days >= 365 * 5 else None
         created_ids = []
+        skipped_withdrawals = 0
+        skipped_sales = 0
+        outstanding_ids = []
+
         current = date_from
+
+        def _create_tx(tx_type, tx_date, total_value, fees=Decimal('0.00'), metal=None, amount_oz=None, price_per_oz=None, status_value=Transaction.Status.COMPLETED):
+            tx = Transaction.objects.create(
+                user=user,
+                transaction_type=tx_type,
+                metal=metal,
+                amount_oz=amount_oz,
+                price_per_oz=price_per_oz,
+                total_value=Decimal(str(total_value)).quantize(Decimal('0.01')),
+                fees=Decimal(str(fees)).quantize(Decimal('0.01')),
+                status=status_value,
+            )
+            random_second = random.randint(0, 86399)
+            ts = datetime.combine(tx_date, datetime.min.time()) + timedelta(seconds=random_second)
+            Transaction.objects.filter(id=tx.id).update(created_at=timezone.make_aware(ts))
+            return tx
 
         with db_transaction.atomic():
             while current <= date_to:
+                in_inactive_window = inactivity_start is not None and current >= inactivity_start
+
+                if current.day == 1:
+                    holdings_value = Decimal('0.00')
+                    for metal_obj in metals:
+                        ounces = holdings.get(metal_obj.symbol, Decimal('0'))
+                        if ounces > 0:
+                            holdings_value += (ounces * Decimal(str(metal_obj.current_price)))
+
+                    if holdings_value > 0:
+                        storage_due = (holdings_value * Decimal('0.0008')).quantize(Decimal('0.01'))
+                        tax_due = (holdings_value * Decimal('0.0012')).quantize(Decimal('0.01'))
+                        fee_status = Transaction.Status.PENDING if in_inactive_window else Transaction.Status.COMPLETED
+
+                        storage_tx = _create_tx(
+                            Transaction.TransactionType.STORAGE_FEE,
+                            current,
+                            total_value=storage_due,
+                            status_value=fee_status,
+                        )
+                        tax_tx = _create_tx(
+                            Transaction.TransactionType.TAX,
+                            current,
+                            total_value=tax_due,
+                            status_value=fee_status,
+                        )
+                        created_ids.extend([str(storage_tx.id), str(tax_tx.id)])
+                        if fee_status == Transaction.Status.PENDING:
+                            outstanding_ids.extend([str(storage_tx.id), str(tax_tx.id)])
+                        else:
+                            wallet.cash_balance -= (storage_due + tax_due)
+
+                if in_inactive_window:
+                    current = current + timedelta(days=1)
+                    continue
+
                 for _ in range(random.randint(1, per_day)):
                     tx_type = random.choices(
-                        tx_types,
-                        weights=[35, 20, 20, 10, 15],
+                        [
+                            Transaction.TransactionType.DEPOSIT,
+                            Transaction.TransactionType.BUY,
+                            Transaction.TransactionType.SELL,
+                            Transaction.TransactionType.WITHDRAWAL,
+                        ],
+                        weights=[30, 35, 20, 15],
                         k=1
                     )[0]
 
-                    metal = random.choice(metals) if tx_type in [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL] else None
-                    amount_oz = None
-                    price_per_oz = None
-                    fees = Decimal('0.00')
-                    total_value = Decimal('0.00')
+                    if tx_type == Transaction.TransactionType.DEPOSIT:
+                        amount = Decimal(str(round(random.uniform(500, 12000), 2))).quantize(Decimal('0.01'))
+                        tx = _create_tx(tx_type, current, total_value=amount)
+                        wallet.cash_balance += amount
+                        created_ids.append(str(tx.id))
+                        continue
 
-                    if tx_type in [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL]:
-                        amount_oz = Decimal(str(round(random.uniform(0.10, 8.00), 4)))
-                        market_price = Decimal(str(metal.current_price)) if metal else Decimal('0')
-                        variance = Decimal(str(round(random.uniform(-0.03, 0.05), 4)))
-                        price_per_oz = (market_price * (Decimal('1.0') + variance)).quantize(Decimal('0.01'))
+                    if tx_type == Transaction.TransactionType.WITHDRAWAL:
+                        max_withdrawable = wallet.cash_balance * Decimal('0.85')
+                        if max_withdrawable <= Decimal('100'):
+                            skipped_withdrawals += 1
+                            continue
+                        amount = Decimal(str(round(random.uniform(100, float(max_withdrawable)), 2))).quantize(Decimal('0.01'))
+                        fee = (amount * Decimal('0.005')).quantize(Decimal('0.01'))
+                        debit = amount + fee
+                        if wallet.cash_balance < debit:
+                            skipped_withdrawals += 1
+                            continue
+                        tx = _create_tx(tx_type, current, total_value=amount, fees=fee)
+                        wallet.cash_balance -= debit
+                        created_ids.append(str(tx.id))
+                        continue
+
+                    metal = random.choice(metals)
+                    market_price = Decimal(str(metal.current_price))
+                    variance = Decimal(str(round(random.uniform(-0.03, 0.04), 4)))
+                    price_per_oz = (market_price * (Decimal('1.0') + variance)).quantize(Decimal('0.01'))
+
+                    if tx_type == Transaction.TransactionType.BUY:
+                        amount_oz = Decimal(str(round(random.uniform(0.1, 3.5), 4)))
                         gross = (amount_oz * price_per_oz).quantize(Decimal('0.01'))
-                        fees = (gross * Decimal('0.015')).quantize(Decimal('0.01'))
+                        fee = (gross * Decimal('0.012')).quantize(Decimal('0.01'))
                         tax = (gross * Decimal('0.002')).quantize(Decimal('0.01'))
-                        total_value = (gross + fees + tax).quantize(Decimal('0.01')) if tx_type == Transaction.TransactionType.BUY else (gross - fees).quantize(Decimal('0.01'))
-                    elif tx_type == Transaction.TransactionType.DEPOSIT:
-                        total_value = Decimal(str(round(random.uniform(500, 20000), 2))).quantize(Decimal('0.01'))
-                    elif tx_type == Transaction.TransactionType.WITHDRAWAL:
-                        total_value = Decimal(str(round(random.uniform(200, 8000), 2))).quantize(Decimal('0.01'))
-                        fees = (total_value * Decimal('0.005')).quantize(Decimal('0.01'))
-                    else:  # storage_fee
-                        total_value = Decimal(str(round(random.uniform(5, 120), 2))).quantize(Decimal('0.01'))
+                        total_cost = gross + fee + tax
+                        if wallet.cash_balance < total_cost:
+                            continue
+                        tx = _create_tx(
+                            tx_type,
+                            current,
+                            total_value=total_cost,
+                            fees=(fee + tax),
+                            metal=metal,
+                            amount_oz=amount_oz,
+                            price_per_oz=price_per_oz,
+                        )
+                        wallet.cash_balance -= total_cost
+                        holdings[metal.symbol] = holdings.get(metal.symbol, Decimal('0')) + amount_oz
+                        created_ids.append(str(tx.id))
+                        continue
 
-                    tx = Transaction.objects.create(
-                        user=user,
-                        transaction_type=tx_type,
-                        metal=metal,
-                        amount_oz=amount_oz,
-                        price_per_oz=price_per_oz,
-                        total_value=total_value,
-                        fees=fees,
-                        status=Transaction.Status.COMPLETED,
-                    )
-
-                    # force timestamp within requested range
-                    random_second = random.randint(0, 86399)
-                    ts = datetime.combine(current, datetime.min.time()) + timedelta(seconds=random_second)
-                    Transaction.objects.filter(id=tx.id).update(created_at=timezone.make_aware(ts))
-                    created_ids.append(str(tx.id))
+                    if tx_type == Transaction.TransactionType.SELL:
+                        available = holdings.get(metal.symbol, Decimal('0'))
+                        if available <= Decimal('0.05'):
+                            skipped_sales += 1
+                            continue
+                        amount_oz = Decimal(str(round(random.uniform(0.05, float(min(available, Decimal('2.5')))), 4)))
+                        gross = (amount_oz * price_per_oz).quantize(Decimal('0.01'))
+                        fee = (gross * Decimal('0.006')).quantize(Decimal('0.01'))
+                        net = gross - fee
+                        tx = _create_tx(
+                            tx_type,
+                            current,
+                            total_value=gross,
+                            fees=fee,
+                            metal=metal,
+                            amount_oz=amount_oz,
+                            price_per_oz=price_per_oz,
+                        )
+                        wallet.cash_balance += net
+                        holdings[metal.symbol] = (available - amount_oz).quantize(Decimal('0.0001'))
+                        if holdings[metal.symbol] < Decimal('0'):
+                            holdings[metal.symbol] = Decimal('0')
+                        created_ids.append(str(tx.id))
 
                 current = current + timedelta(days=1)
+
+            wallet.save(update_fields=['cash_balance'])
 
             log_admin_action(
                 admin_user=request.user,
@@ -955,7 +1052,10 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
                     'date_from': str(date_from),
                     'date_to': str(date_to),
                     'transactions_per_day': per_day,
-                    'generated_count': len(created_ids)
+                    'generated_count': len(created_ids),
+                    'outstanding_debts_count': len(outstanding_ids),
+                    'skipped_withdrawals': skipped_withdrawals,
+                    'skipped_sales': skipped_sales,
                 }
             )
 
@@ -963,6 +1063,10 @@ class AdminTransactionViewSet(viewsets.ReadOnlyModelViewSet):
             'message': 'Synthetic transactions generated successfully',
             'user_email': user.email,
             'generated_count': len(created_ids),
+            'outstanding_debts_count': len(outstanding_ids),
+            'final_cash_balance': str(wallet.cash_balance),
+            'skipped_withdrawals': skipped_withdrawals,
+            'skipped_sales': skipped_sales,
             'transaction_ids': created_ids,
         }, status=status.HTTP_201_CREATED)
 
@@ -1254,9 +1358,9 @@ class DeliveryManagementViewSet(viewsets.ReadOnlyModelViewSet):
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         if date_from:
-            queryset = queryset.filter(created_at__gte=date_from)
+            queryset = queryset.filter(created_at__date__gte=date_from)
         if date_to:
-            queryset = queryset.filter(created_at__lte=date_to)
+            queryset = queryset.filter(created_at__date__lte=date_to)
         
         # Filter by carrier
         carrier_filter = self.request.query_params.get('carrier')
