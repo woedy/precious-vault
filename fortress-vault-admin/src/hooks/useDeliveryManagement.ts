@@ -81,6 +81,14 @@ export interface AssignCarrierParams {
   tracking_number: string;
 }
 
+export interface AdminPaginatedResponse<T> {
+  results: T[];
+  count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 
 const normalizeDelivery = (item: any): Delivery => ({
   ...item,
@@ -101,9 +109,9 @@ export function useDeliveryManagement() {
     }
   };
 
-  const useDeliveryList = (filters?: DeliveryFilters) => {
+  const useDeliveryList = (filters?: DeliveryFilters, page: number = 1, pageSize: number = 20) => {
     return useQuery({
-      queryKey: ['admin', 'deliveries', 'list', filters],
+      queryKey: ['admin', 'deliveries', 'list', filters, page, pageSize],
       queryFn: async () => {
         const params = new URLSearchParams();
 
@@ -114,12 +122,16 @@ export function useDeliveryManagement() {
         if (filters?.carrier) params.append('carrier', filters.carrier);
         if (filters?.search) params.append('search', filters.search);
 
-        const response = await api.get<{ results: Delivery[] } | Delivery[]>(`/deliveries/?${params.toString()}`);
+        params.append('page', String(page));
+        params.append('page_size', String(pageSize));
+
+        const response = await api.get<AdminPaginatedResponse<Delivery> | Delivery[]>(`/deliveries/?${params.toString()}`);
         const data = response.data;
         if (data && typeof data === 'object' && 'results' in data) {
-          return data.results.map(normalizeDelivery);
+          return { ...data, results: data.results.map(normalizeDelivery) } as AdminPaginatedResponse<Delivery>;
         }
-        return Array.isArray(data) ? data.map(normalizeDelivery) : [];
+        const items = Array.isArray(data) ? data.map(normalizeDelivery) : [];
+        return { results: items, count: items.length, page, page_size: pageSize, total_pages: Math.max(1, Math.ceil(items.length / pageSize)) } as AdminPaginatedResponse<Delivery>;
       },
       refetchInterval: 30000,
       staleTime: 20000,

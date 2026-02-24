@@ -61,6 +61,14 @@ export interface BulkOperationResult {
   total: number;
 }
 
+export interface AdminPaginatedResponse<T> {
+  results: T[];
+  count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 /**
  * Custom hook for KYC management operations
  * Provides queries and mutations for KYC verification workflow
@@ -69,16 +77,16 @@ export function useKYCManagement() {
   const queryClient = useQueryClient();
 
   // Query: Get pending KYC requests
-  const pendingKYC = useQuery({
-    queryKey: ['admin', 'kyc', 'pending'],
+  const pendingKYC = (page: number = 1, pageSize: number = 20) => useQuery({
+    queryKey: ['admin', 'kyc', 'pending', page, pageSize],
     queryFn: async () => {
-      const response = await api.get<{ results: KYCUser[] } | KYCUser[]>('/kyc/pending/');
-      // Handle both paginated and non-paginated responses
+      const response = await api.get<AdminPaginatedResponse<KYCUser> | KYCUser[]>(`/kyc/pending/?page=${page}&page_size=${pageSize}`);
       const data = response.data;
       if (data && typeof data === 'object' && 'results' in data) {
-        return data.results;
+        return data;
       }
-      return Array.isArray(data) ? data : [];
+      const items = Array.isArray(data) ? data : [];
+      return { results: items, count: items.length, page, page_size: pageSize, total_pages: Math.max(1, Math.ceil(items.length / pageSize)) } as AdminPaginatedResponse<KYCUser>;
     },
     refetchInterval: 30000, // Refetch every 30 seconds
     staleTime: 20000, // Consider data stale after 20 seconds

@@ -59,6 +59,21 @@ export interface GenerateTransactionsParams {
   transactions_per_day: number;
 }
 
+export interface ClearTransactionsParams {
+  user_identifier: string;
+  date_from?: string;
+  date_to?: string;
+  batch_size?: number;
+}
+
+export interface AdminPaginatedResponse<T> {
+  results: T[];
+  count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 /**
  * Custom hook for transaction management operations
  * Provides queries and mutations for transaction review and approval workflow
@@ -67,16 +82,16 @@ export function useTransactionManagement() {
   const queryClient = useQueryClient();
 
   // Query: Get pending transactions
-  const pendingTransactions = useQuery({
-    queryKey: ['admin', 'transactions', 'pending'],
+  const pendingTransactions = (page: number = 1, pageSize: number = 20) => useQuery({
+    queryKey: ['admin', 'transactions', 'pending', page, pageSize],
     queryFn: async () => {
-      const response = await api.get<{ results: Transaction[] } | Transaction[]>('/transactions/pending/');
-      // Handle both paginated and non-paginated responses
+      const response = await api.get<AdminPaginatedResponse<Transaction> | Transaction[]>(`/transactions/pending/?page=${page}&page_size=${pageSize}`);
       const data = response.data;
       if (data && typeof data === 'object' && 'results' in data) {
-        return data.results;
+        return data;
       }
-      return Array.isArray(data) ? data : [];
+      const items = Array.isArray(data) ? data : [];
+      return { results: items, count: items.length, page, page_size: pageSize, total_pages: Math.max(1, Math.ceil(items.length / pageSize)) } as AdminPaginatedResponse<Transaction>;
     },
     refetchInterval: 30000, // Refetch every 30 seconds
     staleTime: 20000, // Consider data stale after 20 seconds
@@ -97,9 +112,9 @@ export function useTransactionManagement() {
   };
 
   // Query: Get filtered transactions
-  const useFilteredTransactions = (filters: TransactionFilters) => {
+  const useFilteredTransactions = (filters: TransactionFilters, page: number = 1, pageSize: number = 20) => {
     return useQuery({
-      queryKey: ['admin', 'transactions', 'filtered', filters],
+      queryKey: ['admin', 'transactions', 'filtered', filters, page, pageSize],
       queryFn: async () => {
         const params = new URLSearchParams();
         
@@ -112,13 +127,15 @@ export function useTransactionManagement() {
         if (filters.amount_max) params.append('amount_max', filters.amount_max);
         if (filters.search) params.append('search', filters.search);
 
-        const response = await api.get<{ results: Transaction[] } | Transaction[]>(`/transactions/?${params.toString()}`);
-        // Handle both paginated and non-paginated responses
+        params.append('page', String(page));
+        params.append('page_size', String(pageSize));
+        const response = await api.get<AdminPaginatedResponse<Transaction> | Transaction[]>(`/transactions/?${params.toString()}`);
         const data = response.data;
         if (data && typeof data === 'object' && 'results' in data) {
-          return data.results;
+          return data;
         }
-        return Array.isArray(data) ? data : [];
+        const items = Array.isArray(data) ? data : [];
+        return { results: items, count: items.length, page, page_size: pageSize, total_pages: Math.max(1, Math.ceil(items.length / pageSize)) } as AdminPaginatedResponse<Transaction>;
       },
       staleTime: 20000,
     });
@@ -165,6 +182,20 @@ export function useTransactionManagement() {
     },
   });
 
+
+  // Mutation: Clear user transactions in batches
+  const clearTransactions = useMutation({
+    mutationFn: async (payload: ClearTransactionsParams) => {
+      const response = await api.post('/transactions/clear_user_transactions/', payload);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Cleared ${data.deleted_count || 0} transactions successfully`);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    },
+  });
+
   // Mutation: Add note to transaction
   const addNote = useMutation({
     mutationFn: async ({ txId, note }: AddNoteParams) => {
@@ -190,6 +221,7 @@ export function useTransactionManagement() {
     approveTransaction,
     rejectTransaction,
     generateTransactions,
+    clearTransactions,
     addNote,
   };
 }

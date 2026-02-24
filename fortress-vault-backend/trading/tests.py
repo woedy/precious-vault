@@ -109,3 +109,69 @@ class TransactionActivityFeedTests(TestCase):
         self.assertIn(Transaction.TransactionType.WITHDRAWAL, txn_types)
         self.assertIn(Transaction.TransactionType.STORAGE_FEE, txn_types)
         self.assertNotIn(Transaction.TransactionType.DEPOSIT, txn_types)
+
+
+class OutstandingDebtsTests(TestCase):
+    def setUp(self):
+        from users.models import Wallet
+
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email='debts@test.com',
+            username='debts_user',
+            password='testpass123'
+        )
+        self.wallet, _ = Wallet.objects.get_or_create(user=self.user, defaults={'cash_balance': Decimal('1000.00')})
+        self.wallet.cash_balance = Decimal('1000.00')
+        self.wallet.save(update_fields=['cash_balance'])
+
+        Transaction.objects.create(
+            user=self.user,
+            transaction_type=Transaction.TransactionType.STORAGE_FEE,
+            total_value=Decimal('120.00'),
+            fees=Decimal('0.00'),
+            status=Transaction.Status.PENDING,
+        )
+        Transaction.objects.create(
+            user=self.user,
+            transaction_type=Transaction.TransactionType.TAX,
+            total_value=Decimal('80.00'),
+            fees=Decimal('0.00'),
+            status=Transaction.Status.PENDING,
+        )
+
+    def test_outstanding_debts_summary(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get('/api/trading/transactions/outstanding_debts/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(Decimal(str(response.data['total_due'])), Decimal('200.0'))
+
+    def test_settle_outstanding_debts(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post('/api/trading/transactions/settle_outstanding_debts/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.cash_balance, Decimal('800.00'))
+        self.assertEqual(
+            Transaction.objects.filter(
+                user=self.user,
+                transaction_type__in=[Transaction.TransactionType.STORAGE_FEE, Transaction.TransactionType.TAX],
+                status=Transaction.Status.PENDING,
+            ).count(),
+            0,
+        )
+
+    def test_settle_outstanding_debts_requires_sufficient_balance(self):
+        self.wallet.cash_balance = Decimal('50.00')
+        self.wallet.save(update_fields=['cash_balance'])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post('/api/trading/transactions/settle_outstanding_debts/')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Insufficient cash balance', response.data['error'])
