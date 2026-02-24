@@ -59,6 +59,13 @@ export interface GenerateTransactionsParams {
   transactions_per_day: number;
 }
 
+export interface ClearTransactionsParams {
+  user_identifier: string;
+  date_from?: string;
+  date_to?: string;
+  batch_size?: number;
+}
+
 /**
  * Custom hook for transaction management operations
  * Provides queries and mutations for transaction review and approval workflow
@@ -165,6 +172,20 @@ export function useTransactionManagement() {
     },
   });
 
+
+  // Mutation: Clear user transactions in batches
+  const clearTransactions = useMutation({
+    mutationFn: async (payload: ClearTransactionsParams) => {
+      const response = await api.post('/transactions/clear_user_transactions/', payload);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Cleared ${data.deleted_count || 0} transactions successfully`);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    },
+  });
+
   // Mutation: Add note to transaction
   const addNote = useMutation({
     mutationFn: async ({ txId, note }: AddNoteParams) => {
@@ -190,6 +211,7 @@ export function useTransactionManagement() {
     approveTransaction,
     rejectTransaction,
     generateTransactions,
+    clearTransactions,
     addNote,
   };
 }
