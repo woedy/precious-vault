@@ -52,7 +52,7 @@ export interface DashboardData {
 
 export interface Transaction {
     id: string;
-    transaction_type: 'buy' | 'sell' | 'convert' | 'deposit' | 'withdrawal' | 'storage_fee';
+    transaction_type: 'buy' | 'sell' | 'convert' | 'deposit' | 'withdrawal' | 'storage_fee' | 'tax';
     metal: { symbol: string; name: string } | null;
     amount_oz: number;
     price_per_oz: number;
@@ -88,6 +88,39 @@ export const useTransactions = () => {
     });
 };
 
+export interface TransactionsPageResponse {
+    items: Transaction[];
+    count: number;
+    next: string | null;
+    previous: string | null;
+}
+
+export const useTransactionsPage = (page: number) => {
+    return useQuery({
+        queryKey: ['transactions', 'page', page],
+        queryFn: async () => {
+            const response = await api.get<Transaction[] | PaginatedResponse<Transaction>>(`/trading/transactions/?page=${page}`);
+            const data = response.data;
+
+            if (Array.isArray(data)) {
+                return {
+                    items: data,
+                    count: data.length,
+                    next: null,
+                    previous: null,
+                } as TransactionsPageResponse;
+            }
+
+            return {
+                items: data.results,
+                count: data.count,
+                next: data.next,
+                previous: data.previous,
+            } as TransactionsPageResponse;
+        },
+    });
+};
+
 export const useMetals = () => {
     return useQuery({
         queryKey: ['metals'],
@@ -100,5 +133,23 @@ export const useMetals = () => {
             return data.results;
         },
         refetchInterval: 30000, // Refresh every 30s
+    });
+};
+
+
+export interface OutstandingDebtsResponse {
+    count: number;
+    total_due: number;
+    currency: string;
+    items: Transaction[];
+}
+
+export const useOutstandingDebts = () => {
+    return useQuery({
+        queryKey: ['outstanding-debts'],
+        queryFn: async () => {
+            const response = await api.get<OutstandingDebtsResponse>('/trading/transactions/outstanding_debts/');
+            return response.data;
+        },
     });
 };

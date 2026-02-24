@@ -11,6 +11,8 @@ import { Eye, CheckCircle, XCircle } from 'lucide-react';
 const KYCManagementPage: React.FC = () => {
   const { pendingKYC, bulkApproveKYC, bulkRejectKYC } = useKYCManagement();
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [bulkAction, setBulkAction] = useState<'approve' | 'reject' | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkOperationResult | null>(null);
@@ -24,6 +26,11 @@ const KYCManagementPage: React.FC = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+  const pendingKYCQuery = pendingKYC(currentPage, pageSize);
+  const pendingItems = pendingKYCQuery.data?.results ?? [];
+  const totalItems = pendingKYCQuery.data?.count ?? pendingItems.length;
+  const totalPages = pendingKYCQuery.data?.total_pages ?? Math.max(1, Math.ceil(totalItems / pageSize));
 
   // Handle bulk approve
   const handleBulkApprove = async () => {
@@ -82,7 +89,7 @@ const KYCManagementPage: React.FC = () => {
 
   // Calculate stats using useMemo
   const stats = useMemo(() => {
-    const data = pendingKYC.data ?? [];
+    const data = pendingItems;
     
     return {
       total: data.length,
@@ -97,7 +104,7 @@ const KYCManagementPage: React.FC = () => {
           currentTime - new Date(u.kyc_submitted_at).getTime() < 24 * 60 * 60 * 1000
       ).length,
     };
-  }, [pendingKYC.data, currentTime]);
+  }, [pendingItems, currentTime]);
 
   // Define table columns
   const columns: Column<KYCUser>[] = [
@@ -214,12 +221,19 @@ const KYCManagementPage: React.FC = () => {
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">Pending KYC Requests</h2>
           <DataTable
-            data={pendingKYC.data ?? []}
+            data={pendingItems}
             columns={columns}
             keyExtractor={(user) => user.id}
             onRowClick={(user) => setSelectedUserId(user.id)}
-            isLoading={pendingKYC.isLoading}
+            isLoading={pendingKYCQuery.isLoading}
             emptyMessage="No pending KYC requests"
+            pagination={{
+              currentPage,
+              totalPages,
+              pageSize,
+              totalItems,
+              onPageChange: setCurrentPage,
+            }}
             selection={{
               selectedIds,
               onSelectionChange: setSelectedIds,

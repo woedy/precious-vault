@@ -13,6 +13,8 @@ const DeliveryManagementPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
 
   // Initialize filters from URL params
   const [filters, setFilters] = useState<DeliveryFilters>(() => ({
@@ -28,8 +30,14 @@ const DeliveryManagementPage: React.FC = () => {
 
   // Determine which query to use based on filters
   const hasActiveFilters = Object.values(filters).some(v => v !== '');
-  const deliveriesQuery = useDeliveryList(hasActiveFilters ? filters : undefined);
-  const deliveries = deliveriesQuery.data ?? [];
+  const deliveriesQuery = useDeliveryList(hasActiveFilters ? filters : undefined, currentPage, pageSize);
+  const deliveries = deliveriesQuery.data?.results ?? [];
+  const totalItems = deliveriesQuery.data?.count ?? deliveries.length;
+  const totalPages = deliveriesQuery.data?.total_pages ?? Math.max(1, Math.ceil(totalItems / pageSize));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
 
   // Update URL params when filters change
   useEffect(() => {
@@ -45,12 +53,12 @@ const DeliveryManagementPage: React.FC = () => {
   // Calculate stats
   const stats = useMemo(() => {
     return {
-      total: deliveries.length,
+      total: totalItems,
       preparing: deliveries.filter(d => d.status === 'preparing').length,
       shipped: deliveries.filter(d => d.status === 'shipped').length,
       delivered: deliveries.filter(d => d.status === 'delivered').length,
     };
-  }, [deliveries]);
+  }, [deliveries, totalItems]);
 
   // Handle filter changes
   const handleFilterChange = (key: keyof DeliveryFilters, value: string) => {
@@ -283,6 +291,13 @@ const DeliveryManagementPage: React.FC = () => {
             onRowClick={(delivery) => setSelectedDeliveryId(delivery.id)}
             isLoading={deliveriesQuery.isLoading}
             emptyMessage={hasActiveFilters ? 'No deliveries match your filters' : 'No deliveries found'}
+            pagination={{
+              currentPage,
+              totalPages,
+              pageSize,
+              totalItems,
+              onPageChange: setCurrentPage,
+            }}
           />
         </div>
       </div>

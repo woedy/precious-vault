@@ -1,5 +1,5 @@
 import { Layout } from '@/components/layout/Layout';
-import { Transaction, useTransactions } from '@/hooks/useDashboardData';
+import { Transaction, useOutstandingDebts, useTransactionsPage } from '@/hooks/useDashboardData';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
@@ -10,19 +10,49 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowUpRight, ArrowDownRight, Building2, Banknote, Wallet, Loader2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Building2, Banknote, Wallet, Loader2, ReceiptText } from 'lucide-react';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import api from '@/lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
 
 const typeConfig: Record<string, { icon: any; color: string; label: string }> = {
   buy: { icon: ArrowDownRight, color: 'text-success', label: 'Buy' },
   sell: { icon: ArrowUpRight, color: 'text-destructive', label: 'Sell' },
   storage_fee: { icon: Building2, color: 'text-muted-foreground', label: 'Storage Fee' },
+  tax: { icon: ReceiptText, color: 'text-amber-500', label: 'Tax' },
   withdrawal: { icon: Banknote, color: 'text-primary', label: 'Withdrawal' },
   convert: { icon: ArrowUpRight, color: 'text-primary', label: 'Convert' },
   deposit: { icon: Wallet, color: 'text-success', label: 'Deposit' },
 };
 
 export default function ActivityPage() {
-  const { data: transactions, isLoading } = useTransactions();
+  const [currentPage, setCurrentPage] = useState(1);
+  const { data: transactionsPage, isLoading } = useTransactionsPage(currentPage);
+  const { data: outstandingDebts, isLoading: debtsLoading } = useOutstandingDebts();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const settleDebts = useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/trading/transactions/settle_outstanding_debts/');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      toast({ title: 'Outstanding debts settled', description: `Paid $${Number(data.total_paid || 0).toFixed(2)} successfully.` });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['outstanding-debts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Unable to settle debts',
+        description: error?.response?.data?.error || 'Please check your cash balance and try again.',
+        variant: 'destructive',
+      });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -34,7 +64,10 @@ export default function ActivityPage() {
     );
   }
 
-  const txns: Transaction[] = Array.isArray(transactions) ? transactions : [];
+  const txns: Transaction[] = transactionsPage?.items || [];
+  const totalCount = transactionsPage?.count || 0;
+  const pageSize = txns.length || 20;
+  const totalPages = Math.max(1, Math.ceil(totalCount / Math.max(pageSize, 1)));
 
   const formatAmount = (value: number) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
@@ -46,6 +79,26 @@ export default function ActivityPage() {
           <p className="text-muted-foreground">
             View all your account activity and transaction details.
           </p>
+        </div>
+
+        <div className="card-premium mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Outstanding Debts</h2>
+            <p className="text-sm text-muted-foreground">
+              Accumulated unpaid storage fees and taxes.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Total Due</p>
+            <p className="text-2xl font-bold text-amber-500">${formatAmount(outstandingDebts?.total_due || 0)}</p>
+            <p className="text-xs text-muted-foreground">{outstandingDebts?.count || 0} unpaid items</p>
+          </div>
+          <Button
+            onClick={() => settleDebts.mutate()}
+            disabled={debtsLoading || settleDebts.isPending || !outstandingDebts || outstandingDebts.count === 0}
+          >
+            {settleDebts.isPending ? 'Settling...' : 'Settle Now'}
+          </Button>
         </div>
 
         {/* Stats */}
@@ -97,7 +150,7 @@ export default function ActivityPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Icon className={cn("h-4 w-4", config.color)} />
-                        <span className="capitalize">{txn.transaction_type}</span>
+                        <span className="capitalize">{config.label}</span>
                       </div>
                     </TableCell>
                     <TableCell>{txn.metal?.name || '-'}</TableCell>
@@ -125,6 +178,19 @@ export default function ActivityPage() {
           </Table>
         </div>
 
+
+        <div className="hidden md:flex items-center justify-between mt-4 mb-6">
+          <p className="text-sm text-muted-foreground">
+            Page {currentPage} of {totalPages} • {totalCount} total transactions
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage <= 1}>First</Button>
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}>Previous</Button>
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Next</Button>
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage >= totalPages}>Last</Button>
+          </div>
+        </div>
+
         {/* Mobile Cards */}
         <div className="md:hidden space-y-4">
           {txns.map((txn) => {
@@ -135,7 +201,7 @@ export default function ActivityPage() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Icon className={cn("h-5 w-5", config.color)} />
-                    <span className="font-medium capitalize">{txn.transaction_type}</span>
+                    <span className="font-medium capitalize">{config.label}</span>
                   </div>
                   <Badge
                     variant="outline"
@@ -172,6 +238,13 @@ export default function ActivityPage() {
             );
           })}
         </div>
+
+        <div className="md:hidden flex items-center justify-between mt-4">
+          <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}>Previous</Button>
+          <p className="text-xs text-muted-foreground">Page {currentPage} / {totalPages}</p>
+          <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Next</Button>
+        </div>
+
       </div>
     </Layout>
   );
