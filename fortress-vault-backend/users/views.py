@@ -2,7 +2,7 @@ import random
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
-from rest_framework import status, viewsets
+from rest_framework import status, viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -58,6 +58,9 @@ class UserViewSet(viewsets.ModelViewSet):
         if last_name:
             user.last_name = last_name
         user.phone_number = data['phone_number']
+        preferred_vault = data.get('preferred_vault', serializers.empty)
+        if preferred_vault is not serializers.empty:
+            user.preferred_vault = preferred_vault
         user.kyc_status = User.KYCStatus.VERIFIED  # Auto-verify for MVP
         user.save()
         
