@@ -6,6 +6,7 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreatePasswordRetypeSerializer as DjoserUserCreateSerializer
 from .models import User, Address, Wallet, ChatThread, ChatMessage
+from vaults.models import Vault
 
 
 class AddressSerializer(serializers.ModelSerializer):
@@ -31,7 +32,11 @@ class UserSerializer(serializers.ModelSerializer):
     
     addresses = AddressSerializer(many=True, read_only=True)
     wallet = WalletSerializer(read_only=True)
-    preferred_vault = serializers.PrimaryKeyRelatedField(read_only=True)
+    preferred_vault = serializers.PrimaryKeyRelatedField(
+        queryset=Vault.objects.filter(status=Vault.Status.ACTIVE),
+        required=False,
+        allow_null=True,
+    )
     
     class Meta:
         model = User
@@ -116,6 +121,11 @@ class KYCSubmissionSerializer(serializers.Serializer):
     state = serializers.CharField(max_length=100, required=False, allow_blank=True)
     zip_code = serializers.CharField(max_length=20)
     country = serializers.CharField(max_length=100)
+    preferred_vault = serializers.PrimaryKeyRelatedField(
+        queryset=Vault.objects.filter(status=Vault.Status.ACTIVE),
+        required=False,
+        allow_null=True,
+    )
 
 
 class Enable2FASerializer(serializers.Serializer):

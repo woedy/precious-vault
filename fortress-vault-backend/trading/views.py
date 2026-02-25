@@ -122,7 +122,7 @@ class PlatformSettingsPublicView(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def retrieve(self, request):
         obj = PlatformSettings.get_solo()
-        return Response({'metals_buying_enabled': obj.metals_buying_enabled, 'metals_selling_enabled': obj.metals_selling_enabled})
+        return Response({'metals_buying_enabled': obj.metals_buying_enabled, 'metals_selling_enabled': obj.metals_selling_enabled, 'metals_convert_enabled': obj.metals_convert_enabled})
 
 
 class MetalPricesPublicView(viewsets.ViewSet):
@@ -227,6 +227,74 @@ class TransactionViewSet(viewsets.ReadOnlyModelViewSet):
         """Users can only see their own transactions"""
         return Transaction.objects.filter(user=self.request.user).select_related('metal')
 
+
+
+    @action(detail=False, methods=['get'])
+    def outstanding_debts(self, request):
+        """Summarize unpaid storage and tax debt transactions."""
+        debt_types = [Transaction.TransactionType.STORAGE_FEE, Transaction.TransactionType.TAX]
+        debts_qs = Transaction.objects.filter(
+            user=request.user,
+            status=Transaction.Status.PENDING,
+            transaction_type__in=debt_types,
+        ).order_by('created_at')
+
+        total_due = sum((tx.total_value + tx.fees) for tx in debts_qs)
+
+        return Response({
+            'count': debts_qs.count(),
+            'total_due': float(total_due),
+            'currency': 'USD',
+            'items': TransactionSerializer(debts_qs, many=True).data,
+        })
+
+    @action(detail=False, methods=['post'])
+    def settle_outstanding_debts(self, request):
+        """Settle all pending storage/tax debts if cash balance is sufficient."""
+        user = request.user
+        wallet, _ = Wallet.objects.get_or_create(user=user)
+        debt_types = [Transaction.TransactionType.STORAGE_FEE, Transaction.TransactionType.TAX]
+        debts_qs = Transaction.objects.filter(
+            user=user,
+            status=Transaction.Status.PENDING,
+            transaction_type__in=debt_types,
+        ).order_by('created_at')
+
+        debts = list(debts_qs)
+        if not debts:
+            return Response({'message': 'No outstanding debts found', 'settled_count': 0, 'remaining_balance': float(wallet.cash_balance)})
+
+        total_due = sum((tx.total_value + tx.fees) for tx in debts)
+
+        if wallet.cash_balance < total_due:
+            return Response(
+                {
+                    'error': 'Insufficient cash balance to settle outstanding debts',
+                    'total_due': float(total_due),
+                    'cash_balance': float(wallet.cash_balance),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with db_transaction.atomic():
+            wallet.cash_balance -= total_due
+            wallet.save(update_fields=['cash_balance'])
+            Transaction.objects.filter(id__in=[tx.id for tx in debts]).update(status=Transaction.Status.COMPLETED)
+            settlement_tx = Transaction.objects.create(
+                user=user,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                total_value=total_due,
+                fees=Decimal('0.00'),
+                status=Transaction.Status.COMPLETED,
+            )
+
+        return Response({
+            'message': 'Outstanding debts settled successfully',
+            'settled_count': len(debts),
+            'total_paid': float(total_due),
+            'remaining_balance': float(wallet.cash_balance),
+            'settlement_transaction': TransactionSerializer(settlement_tx).data,
+        })
 
 class TradingViewSet(viewsets.ViewSet):
     """Trading operations viewset"""
@@ -397,6 +465,13 @@ class TradingViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def convert(self, request):
         """Convert metals to cash"""
+        settings_obj = PlatformSettings.get_solo()
+        if not settings_obj.metals_convert_enabled:
+            return Response(
+                {'error': 'Converting to cash is temporarily unavailable. Please contact an administrator.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
         serializer = ConvertMetalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         

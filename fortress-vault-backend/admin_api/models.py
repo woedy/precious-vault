@@ -93,6 +93,7 @@ class PlatformSettings(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     metals_buying_enabled = models.BooleanField(default=True)
     metals_selling_enabled = models.BooleanField(default=True)
+    metals_convert_enabled = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

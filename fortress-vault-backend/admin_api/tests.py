@@ -600,6 +600,114 @@ class TestTransactionManagementViewSet(TestCase):
         ).count()
         self.assertGreater(generated, 0)
 
+
+
+    def test_clear_user_transactions_in_batches(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        extra = [
+            self.Transaction.objects.create(
+                user=self.regular_user,
+                transaction_type=self.Transaction.TransactionType.DEPOSIT,
+                total_value='10.00',
+                status=self.Transaction.Status.COMPLETED,
+            )
+            for _ in range(5)
+        ]
+
+        response = self.client.post(
+            '/api/admin/transactions/clear_user_transactions/',
+            {
+                'user_identifier': self.regular_user.email,
+                'batch_size': 500,
+            },
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data.get('deleted_count', 0), len(extra))
+        self.assertEqual(self.Transaction.objects.filter(user=self.regular_user).count(), 0)
+
+    def test_clear_user_transactions_date_range(self):
+        from datetime import datetime
+        from django.utils import timezone
+
+        self.client.force_authenticate(user=self.admin_user)
+
+        jan_tx = self.Transaction.objects.create(
+            user=self.regular_user,
+            transaction_type=self.Transaction.TransactionType.DEPOSIT,
+            total_value='100.00',
+            status=self.Transaction.Status.COMPLETED,
+        )
+        feb_tx = self.Transaction.objects.create(
+            user=self.regular_user,
+            transaction_type=self.Transaction.TransactionType.DEPOSIT,
+            total_value='100.00',
+            status=self.Transaction.Status.COMPLETED,
+        )
+
+        self.Transaction.objects.filter(id=jan_tx.id).update(created_at=timezone.make_aware(datetime(2026, 1, 15, 12, 0, 0)))
+        self.Transaction.objects.filter(id=feb_tx.id).update(created_at=timezone.make_aware(datetime(2026, 2, 15, 12, 0, 0)))
+
+        response = self.client.post(
+            '/api/admin/transactions/clear_user_transactions/',
+            {
+                'user_identifier': self.regular_user.email,
+                'date_from': '2026-01-01',
+                'date_to': '2026-01-31',
+                'batch_size': 500,
+            },
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(self.Transaction.objects.filter(id=jan_tx.id).exists())
+        self.assertTrue(self.Transaction.objects.filter(id=feb_tx.id).exists())
+
+    def test_filter_transactions_by_date_to_is_inclusive(self):
+        from decimal import Decimal
+        from datetime import datetime
+        from django.utils import timezone
+
+        self.client.force_authenticate(user=self.admin_user)
+        target_tx = self.Transaction.objects.create(
+            user=self.regular_user,
+            transaction_type=self.Transaction.TransactionType.DEPOSIT,
+            total_value=Decimal('100.00'),
+            status=self.Transaction.Status.COMPLETED,
+        )
+        self.Transaction.objects.filter(id=target_tx.id).update(created_at=timezone.make_aware(datetime(2026, 1, 31, 16, 0, 0)))
+
+        response = self.client.get('/api/admin/transactions/?date_from=2026-01-01&date_to=2026-01-31')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data if isinstance(response.data, list) else response.data.get('results', [])
+        ids = {str(item['id']) for item in results}
+        self.assertIn(str(target_tx.id), ids)
+
+    def test_generate_long_range_creates_outstanding_debts_for_inactive_years(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(
+            '/api/admin/transactions/generate/',
+            {
+                'user_identifier': self.regular_user.email,
+                'date_from': '2006-01-01',
+                'date_to': '2026-01-01',
+                'transactions_per_day': 1,
+            },
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertGreater(response.data.get('outstanding_debts_count', 0), 0)
+        debts = self.Transaction.objects.filter(
+            user=self.regular_user,
+            transaction_type__in=[self.Transaction.TransactionType.STORAGE_FEE, self.Transaction.TransactionType.TAX],
+            status=self.Transaction.Status.PENDING,
+        ).count()
+        self.assertGreater(debts, 0)
+
     def test_generate_transactions_requires_valid_payload(self):
         self.client.force_authenticate(user=self.admin_user)
 
@@ -1249,3 +1357,84 @@ class TestAuditLogViewSet(TestCase):
         response = self.client.get(f'/api/admin/audit/{self.action1.id}/')
         
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@pytest.mark.django_db
+class TestDashboardAlertsView(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from users.models import Wallet
+        from trading.models import Transaction
+
+        self.User = get_user_model()
+        self.Transaction = Transaction
+        self.client = APIClient()
+
+        self.admin_user = self.User.objects.create_user(
+            email='alerts-admin@test.com',
+            username='alerts_admin',
+            password='testpass123',
+            is_staff=True
+        )
+
+        self.regular_user = self.User.objects.create_user(
+            email='alerts-user@test.com',
+            username='alerts_user',
+            password='testpass123',
+            kyc_status=self.User.KYCStatus.PENDING
+        )
+
+        Wallet.objects.get_or_create(user=self.regular_user)
+
+        self.Transaction.objects.create(
+            user=self.regular_user,
+            transaction_type=self.Transaction.TransactionType.DEPOSIT,
+            total_value='150.00',
+            status=self.Transaction.Status.PENDING,
+        )
+
+    def test_alerts_endpoint_handles_timezone_aware_datetimes(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        self.client.force_authenticate(user=self.admin_user)
+
+        # Ensure records are old enough to appear in alerts
+        self.User.objects.filter(id=self.regular_user.id).update(created_at=timezone.now() - timedelta(hours=72))
+        self.Transaction.objects.filter(user=self.regular_user).update(created_at=timezone.now() - timedelta(hours=30))
+
+        response = self.client.get('/api/admin/dashboard/alerts/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('old_kyc_requests', response.data)
+        self.assertIn('old_pending_transactions', response.data)
+        self.assertGreaterEqual(len(response.data['old_kyc_requests']), 1)
+        self.assertGreaterEqual(len(response.data['old_pending_transactions']), 1)
+
+
+@pytest.mark.django_db
+class TestPlatformSettingsView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = User.objects.create_user(
+            email='platform-admin@test.com',
+            username='platform_admin',
+            password='testpass123',
+            is_staff=True
+        )
+
+    def test_retrieve_includes_convert_flag(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get('/api/admin/platform/settings/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('metals_convert_enabled', response.data)
+
+    def test_update_convert_flag(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post('/api/admin/platform/settings/', {'metals_convert_enabled': False}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['metals_convert_enabled'], False)

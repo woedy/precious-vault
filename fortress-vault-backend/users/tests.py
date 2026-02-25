@@ -3,6 +3,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from users.models import User
+from vaults.models import Vault
 
 
 class ChatEndpointsTests(TestCase):
@@ -43,3 +44,41 @@ class ChatEndpointsTests(TestCase):
         thread_msgs = self.client.get(f'/api/admin/chats/{thread_id}/messages/')
         self.assertEqual(thread_msgs.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(thread_msgs.data['messages']), 2)
+
+
+class PreferredVaultPersistenceTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(email='investor@test.com', username='investor', password='pass12345')
+        self.vault = Vault.objects.create(
+            name='Zurich Secure Vault',
+            city='Zurich',
+            country='Switzerland',
+            storage_fee_percent='0.0008',
+            status=Vault.Status.ACTIVE,
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_update_me_persists_preferred_vault(self):
+        resp = self.client.patch('/api/users/profile/update_me/', {'preferred_vault': str(self.vault.id)}, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.preferred_vault_id, self.vault.id)
+
+    def test_submit_kyc_persists_preferred_vault(self):
+        payload = {
+            'phone_number': '+15551234567',
+            'street': '1 Gold Street',
+            'city': 'Geneva',
+            'state': '',
+            'zip_code': '1201',
+            'country': 'Switzerland',
+            'preferred_vault': str(self.vault.id),
+        }
+
+        resp = self.client.post('/api/users/profile/submit_kyc/', payload, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.preferred_vault_id, self.vault.id)

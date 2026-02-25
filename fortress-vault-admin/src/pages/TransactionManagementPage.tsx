@@ -13,11 +13,19 @@ const TransactionManagementPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedTxId, setSelectedTxId] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
   const [generatorForm, setGeneratorForm] = useState({
     user_identifier: '',
     date_from: '',
     date_to: '',
     transactions_per_day: '2',
+  });
+  const [clearForm, setClearForm] = useState({
+    user_identifier: '',
+    date_from: '',
+    date_to: '',
+    batch_size: '5000',
   });
 
   // Initialize filters from URL params
@@ -32,14 +40,20 @@ const TransactionManagementPage: React.FC = () => {
     search: searchParams.get('search') || '',
   }));
 
-  const { pendingTransactions, useFilteredTransactions, generateTransactions } = useTransactionManagement();
+  const { pendingTransactions, useFilteredTransactions, generateTransactions, clearTransactions } = useTransactionManagement();
 
   // Determine which query to use based on filters
   const hasActiveFilters = Object.values(filters).some(v => v !== '');
-  const filteredTransactions = useFilteredTransactions(filters);
-  
-  const transactionsQuery = hasActiveFilters ? filteredTransactions : pendingTransactions;
-  const transactions = transactionsQuery.data ?? [];
+  const filteredTransactions = useFilteredTransactions(filters, currentPage, pageSize);
+
+  const transactionsQuery = hasActiveFilters ? filteredTransactions : pendingTransactions(currentPage, pageSize);
+  const transactions = transactionsQuery.data?.results ?? [];
+  const totalItems = transactionsQuery.data?.count ?? transactions.length;
+  const totalPages = transactionsQuery.data?.total_pages ?? Math.max(1, Math.ceil(totalItems / pageSize));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
 
   // Update URL params when filters change
   useEffect(() => {
@@ -55,7 +69,7 @@ const TransactionManagementPage: React.FC = () => {
   // Calculate stats
   const stats = useMemo(() => {
     return {
-      total: transactions.length,
+      total: totalItems,
       pending: transactions.filter(t => t.status === 'pending').length,
       completed: transactions.filter(t => t.status === 'completed').length,
       failed: transactions.filter(t => t.status === 'failed').length,
@@ -258,6 +272,75 @@ const TransactionManagementPage: React.FC = () => {
         </div>
       </div>
 
+
+      {/* Clear Customer Transactions */}
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Clear Customer Transactions</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Bulk delete customer transactions (batched) so you can regenerate a clean transaction history.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <Label htmlFor="clear_user">Customer Email or ID</Label>
+            <Input
+              id="clear_user"
+              placeholder="user@email.com or UUID"
+              value={clearForm.user_identifier}
+              onChange={(e) => setClearForm((prev) => ({ ...prev, user_identifier: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="clear_from">Date From (Optional)</Label>
+            <Input
+              id="clear_from"
+              type="date"
+              value={clearForm.date_from}
+              onChange={(e) => setClearForm((prev) => ({ ...prev, date_from: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="clear_to">Date To (Optional)</Label>
+            <Input
+              id="clear_to"
+              type="date"
+              value={clearForm.date_to}
+              onChange={(e) => setClearForm((prev) => ({ ...prev, date_to: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="clear_batch">Batch Size</Label>
+            <Input
+              id="clear_batch"
+              type="number"
+              min={500}
+              max={20000}
+              value={clearForm.batch_size}
+              onChange={(e) => setClearForm((prev) => ({ ...prev, batch_size: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            variant="destructive"
+            onClick={async () => {
+              await clearTransactions.mutateAsync({
+                user_identifier: clearForm.user_identifier.trim(),
+                date_from: clearForm.date_from || undefined,
+                date_to: clearForm.date_to || undefined,
+                batch_size: Number(clearForm.batch_size || 5000),
+              });
+            }}
+            disabled={clearTransactions.isPending || !clearForm.user_identifier.trim()}
+          >
+            {clearTransactions.isPending ? 'Clearing...' : 'Clear Transactions'}
+          </Button>
+        </div>
+      </div>
+
       {/* Search and Filter Controls */}
       <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center justify-between">
@@ -392,6 +475,13 @@ const TransactionManagementPage: React.FC = () => {
             onRowClick={(tx) => setSelectedTxId(tx.id)}
             isLoading={transactionsQuery.isLoading}
             emptyMessage={hasActiveFilters ? 'No transactions match your filters' : 'No pending transactions'}
+            pagination={{
+              currentPage,
+              totalPages,
+              pageSize,
+              totalItems,
+              onPageChange: setCurrentPage,
+            }}
           />
         </div>
       </div>

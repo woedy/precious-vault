@@ -4,9 +4,11 @@ import { Layout } from '@/components/layout/Layout';
 import { useTrading } from '@/hooks/useTrading';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useMetalPrices } from '@/hooks/useMetalPrices';
+import { useQuery } from '@tanstack/react-query';
+import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2, Banknote, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Banknote, Loader2, AlertTriangle } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -19,11 +21,20 @@ export default function ConvertPage() {
   const [selectedHoldingId, setSelectedHoldingId] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const { data: dashboard, isLoading } = useDashboardData();
   const { convert } = useTrading();
   const { data: metalPrices } = useMetalPrices();
+  const { data: platformSettings } = useQuery<{ metals_buying_enabled: boolean; metals_selling_enabled: boolean; metals_convert_enabled: boolean }>({
+    queryKey: ['platform', 'settings'],
+    queryFn: async () => {
+      const res = await api.get('/trading/platform/settings/');
+      return res.data;
+    },
+    staleTime: 15000,
+  });
 
   const holdings = Array.isArray(dashboard?.portfolio_items) ? dashboard?.portfolio_items.filter(i => i.status === 'vaulted') : [];
   const selected = holdings.find((h) => h.id === selectedHoldingId);
@@ -34,6 +45,11 @@ export default function ConvertPage() {
   const cashValue = selected ? amountValue * spotPrice * 0.98 : 0; // 2% conversion fee
 
   const handleConvert = () => {
+    setErrorMessage(null);
+    if (platformSettings && platformSettings.metals_convert_enabled === false) {
+      setErrorMessage('Convert to cash is temporarily unavailable. Please contact an administrator.');
+      return;
+    }
     if (selected && amount) {
       setStep('confirm');
     }
@@ -41,14 +57,22 @@ export default function ConvertPage() {
 
   const handleConfirm = async () => {
     if (!selected) return;
+    setErrorMessage(null);
+    if (platformSettings && platformSettings.metals_convert_enabled === false) {
+      setErrorMessage('Convert to cash is temporarily unavailable. Please contact an administrator.');
+      setStep('select');
+      return;
+    }
     try {
       await convert.mutateAsync({
         portfolio_item_id: selected.id,
         amount_oz: parseFloat(amount)
       });
       setStep('success');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Conversion failed", error);
+      setErrorMessage(error.response?.data?.error || 'We could not complete your conversion right now.');
+      setStep('select');
     }
   };
 
@@ -92,6 +116,13 @@ export default function ConvertPage() {
                 Convert your precious metals holdings to cash with instant settlement.
               </p>
             </div>
+
+            {errorMessage && (
+              <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5" />
+                <p className="text-sm font-medium">{errorMessage}</p>
+              </div>
+            )}
 
             <div className="max-w-lg mx-auto">
               <div className="card-premium mb-6">
@@ -173,7 +204,7 @@ export default function ConvertPage() {
                     size="lg"
                     className="w-full"
                     onClick={handleConvert}
-                    disabled={!selectedHoldingId || !amount}
+                    disabled={!selectedHoldingId || !amount || platformSettings?.metals_convert_enabled === false}
                   >
                     Convert to Cash
                   </Button>
