@@ -26,7 +26,7 @@ const DashboardPage: React.FC = () => {
   const { metrics, recentActions, alerts } = useDashboard();
   const queryClient = useQueryClient();
 
-  const platformSettings = useQuery<{ metals_buying_enabled: boolean; metals_selling_enabled: boolean }>({
+  const platformSettings = useQuery<{ metals_buying_enabled: boolean; metals_selling_enabled: boolean; metals_convert_enabled: boolean }>({
     queryKey: ['admin', 'platform', 'settings'],
     queryFn: async () => {
       const res = await api.get('/platform/settings/');
@@ -36,7 +36,7 @@ const DashboardPage: React.FC = () => {
   });
 
   const updatePlatformSettings = useMutation({
-    mutationFn: async (settings: Partial<{ metals_buying_enabled: boolean; metals_selling_enabled: boolean }>) => {
+    mutationFn: async (settings: Partial<{ metals_buying_enabled: boolean; metals_selling_enabled: boolean; metals_convert_enabled: boolean }>) => {
       const res = await api.post('/platform/settings/', settings);
       return res.data;
     },
@@ -119,6 +119,21 @@ const DashboardPage: React.FC = () => {
             <Switch
               checked={platformSettings.data?.metals_selling_enabled ?? true}
               onCheckedChange={(checked: boolean) => updatePlatformSettings.mutate({ metals_selling_enabled: checked })}
+              disabled={platformSettings.isLoading || updatePlatformSettings.isPending}
+            />
+          </div>
+
+
+          <div className="flex items-center justify-between mt-6 border-t pt-6">
+            <div>
+              <div className="font-medium">Enable convert to cash</div>
+              <div className="text-sm text-muted-foreground">
+                Disable to block all client convert-to-cash operations.
+              </div>
+            </div>
+            <Switch
+              checked={platformSettings.data?.metals_convert_enabled ?? true}
+              onCheckedChange={(checked: boolean) => updatePlatformSettings.mutate({ metals_convert_enabled: checked })}
               disabled={platformSettings.isLoading || updatePlatformSettings.isPending}
             />
           </div>

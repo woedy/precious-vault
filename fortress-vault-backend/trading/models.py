@@ -112,6 +112,7 @@ class Transaction(models.Model):
         DEPOSIT = 'deposit', 'Deposit'
         WITHDRAWAL = 'withdrawal', 'Withdrawal'
         STORAGE_FEE = 'storage_fee', 'Storage Fee'
+        TAX = 'tax', 'Tax'
     
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
